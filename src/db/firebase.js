@@ -1,0 +1,57 @@
+import admin from 'firebase-admin';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const serviceAccountPath = path.join(__dirname, '../../serviceAccountKey.json');
+let isInitialized = false;
+
+// Handle ESM/CJS interop differences for firebase-admin
+const firebaseAdmin = admin.default || admin;
+
+// Attempt to initialize Firebase Admin SDK
+try {
+  if (fs.existsSync(serviceAccountPath)) {
+    console.log('🔑 Initializing Firebase Admin SDK via serviceAccountKey.json...');
+    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+    firebaseAdmin.initializeApp({
+      credential: firebaseAdmin.credential.cert(serviceAccount)
+    });
+    isInitialized = true;
+  } else if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+    console.log('🔑 Initializing Firebase Admin SDK via Environment Variables...');
+    
+    let projectId = process.env.FIREBASE_PROJECT_ID.trim();
+    if (projectId.startsWith('"') && projectId.endsWith('"')) projectId = projectId.slice(1, -1);
+    if (projectId.startsWith("'") && projectId.endsWith("'")) projectId = projectId.slice(1, -1);
+
+    let clientEmail = process.env.FIREBASE_CLIENT_EMAIL.trim();
+    if (clientEmail.startsWith('"') && clientEmail.endsWith('"')) clientEmail = clientEmail.slice(1, -1);
+    if (clientEmail.startsWith("'") && clientEmail.endsWith("'")) clientEmail = clientEmail.slice(1, -1);
+
+    let privateKey = process.env.FIREBASE_PRIVATE_KEY.trim();
+    if (privateKey.startsWith('"') && privateKey.endsWith('"')) privateKey = privateKey.slice(1, -1);
+    if (privateKey.startsWith("'") && privateKey.endsWith("'")) privateKey = privateKey.slice(1, -1);
+    privateKey = privateKey.replace(/\\n/g, '\n');
+    
+    firebaseAdmin.initializeApp({
+      credential: firebaseAdmin.credential.cert({
+        projectId: projectId,
+        clientEmail: clientEmail,
+        privateKey: privateKey
+      })
+    });
+    isInitialized = true;
+  } else {
+    console.warn('\n⚠️ WARNING: Firebase Admin SDK credentials not configured.');
+    console.warn('To use Google Authentication, please place "serviceAccountKey.json" in the backend root');
+    console.warn('or configure FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY in your .env file.\n');
+  }
+} catch (err) {
+  console.error('💥 Critical Error: Failed to initialize Firebase Admin SDK:', err.message);
+}
+
+export { firebaseAdmin as admin, isInitialized };

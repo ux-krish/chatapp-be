@@ -1,0 +1,34 @@
+# Dependency directories
+node_modules/
+
+# Local database files
+database.sqlite
+database.sqlite-journal
+database.sqlite-shm
+database.sqlite-wal
+
+# Sensitive environment secrets
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# Firebase Admin Private Credentials
+serviceAccountKey.json
+
+# User avatars and media attachments uploaded locally
+public/uploads/
+public/uploads/**/*
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+logs/
+*.log
+
+# OS metadata
+.DS_Store
+Thumbs.db
