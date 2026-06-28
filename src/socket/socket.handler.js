@@ -394,6 +394,36 @@ export function setupSocketHandler(io) {
       }
     });
 
+    // 6.5 WebRTC Calling Signaling Relays
+    socket.on('call_user', ({ userToCall, signalData, from, name, avatarUrl }) => {
+      console.log(`📡 Signaling Call: ${from} (${name}) -> ${userToCall}`);
+      io.to(userToCall).emit('incoming_call', {
+        signal: signalData,
+        from,
+        name,
+        avatarUrl
+      });
+    });
+
+    socket.on('answer_call', ({ to, signal }) => {
+      console.log(`📡 Answer Call: ${userId} -> ${to}`);
+      io.to(to).emit('call_accepted', { signal });
+    });
+
+    socket.on('ice_candidate', ({ to, candidate }) => {
+      io.to(to).emit('ice_candidate', { candidate });
+    });
+
+    socket.on('reject_call', ({ to }) => {
+      console.log(`📡 Reject Call: ${userId} -> ${to}`);
+      io.to(to).emit('call_rejected');
+    });
+
+    socket.on('hangup_call', ({ to }) => {
+      console.log(`📡 Hangup Call: ${userId} -> ${to}`);
+      io.to(to).emit('peer_hungup');
+    });
+
     // 7. Disconnect
     socket.on('disconnect', async () => {
       console.log(`User disconnected: ${socket.user.email} (Socket: ${socket.id})`);
