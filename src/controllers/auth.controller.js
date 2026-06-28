@@ -24,6 +24,7 @@ const serializeUser = (user) => {
     hasPassword: !!user.password,
     themeColor: user.themeColor || 'green',
     fontSize: user.fontSize || 'medium',
+    theme: user.theme || 'dark',
     createdAt: user.createdAt
   };
 };

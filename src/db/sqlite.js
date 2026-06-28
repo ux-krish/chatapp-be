@@ -2,6 +2,7 @@ import { open } from 'sqlite';
 import sqlite3 from 'sqlite3';
 import fs from 'fs';
 import path from 'path';
+import bcrypt from 'bcryptjs';
 import { DB_PATH, UPLOADS_DIR } from '../config/config.js';
 
 let dbInstance = null;
@@ -60,6 +61,7 @@ async function initializeSchema(db) {
       twoFactorEnabled INTEGER DEFAULT 0,
       themeColor TEXT DEFAULT 'green',
       fontSize TEXT DEFAULT 'medium',
+      theme TEXT DEFAULT 'dark',
       createdAt INTEGER NOT NULL
     );
   `);
@@ -82,6 +84,9 @@ async function initializeSchema(db) {
   } catch (e) {}
   try {
     await db.exec("ALTER TABLE users ADD COLUMN fontSize TEXT DEFAULT 'medium';");
+  } catch (e) {}
+  try {
+    await db.exec("ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'dark';");
   } catch (e) {}
 
   // 2. OTPs Table
@@ -199,4 +204,23 @@ async function initializeSchema(db) {
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+
+  // Seed Super Admin user if not already present
+  const superAdminEmail = 'admin@securechat.com';
+  const existingAdmin = await db.get('SELECT * FROM users WHERE email = ?', [superAdminEmail]);
+  if (!existingAdmin) {
+    const adminId = 'usr_super_admin';
+    const displayName = 'Super Admin';
+    const bio = 'System Super Administrator';
+    const role = 'admin';
+    const createdAt = 1719586800000; // Constant timestamp (does not change or create random time)
+    const hashedPassword = await bcrypt.hash('admin123', 10);
+
+    await db.run(`
+      INSERT INTO users (id, email, displayName, bio, status, lastSeen, role, password, twoFactorEnabled, themeColor, fontSize, theme, createdAt)
+      VALUES (?, ?, ?, ?, 'offline', ?, ?, ?, 0, 'green', 'medium', 'dark', ?)
+    `, [adminId, superAdminEmail, displayName, bio, createdAt, role, hashedPassword, createdAt]);
+
+    console.log(`🛡️ Super Admin initialized: ${superAdminEmail} / admin123`);
+  }
 }
