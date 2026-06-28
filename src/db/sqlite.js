@@ -62,6 +62,7 @@ async function initializeSchema(db) {
       themeColor TEXT DEFAULT 'green',
       fontSize TEXT DEFAULT 'medium',
       theme TEXT DEFAULT 'dark',
+      chatBgPattern TEXT DEFAULT 'dots',
       createdAt INTEGER NOT NULL
     );
   `);
@@ -87,6 +88,9 @@ async function initializeSchema(db) {
   } catch (e) {}
   try {
     await db.exec("ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'dark';");
+  } catch (e) {}
+  try {
+    await db.exec("ALTER TABLE users ADD COLUMN chatBgPattern TEXT DEFAULT 'dots';");
   } catch (e) {}
 
   // 2. OTPs Table

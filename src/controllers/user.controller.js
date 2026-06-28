@@ -21,7 +21,7 @@ export async function getProfile(req, res) {
 
 // Update current user profile
 export async function updateProfile(req, res) {
-  const { displayName, bio, themeColor, fontSize, theme } = req.body;
+  const { displayName, bio, themeColor, fontSize, theme, chatBgPattern } = req.body;
   const db = await getDb();
 
   try {
@@ -109,12 +109,13 @@ export async function updateProfile(req, res) {
     const newThemeColor = themeColor !== undefined ? themeColor.trim() : (user.themeColor || 'green');
     const newFontSize = fontSize !== undefined ? fontSize.trim() : (user.fontSize || 'medium');
     const newTheme = theme !== undefined ? theme.trim() : (user.theme || 'dark');
+    const newChatBgPattern = chatBgPattern !== undefined ? chatBgPattern.trim() : (user.chatBgPattern || 'dots');
 
     await db.run(`
       UPDATE users 
-      SET displayName = ?, bio = ?, avatarUrl = ?, themeColor = ?, fontSize = ?, theme = ? 
+      SET displayName = ?, bio = ?, avatarUrl = ?, themeColor = ?, fontSize = ?, theme = ?, chatBgPattern = ? 
       WHERE id = ?
-    `, [newDisplayName, newBio, avatarUrl, newThemeColor, newFontSize, newTheme, req.user.id]);
+    `, [newDisplayName, newBio, avatarUrl, newThemeColor, newFontSize, newTheme, newChatBgPattern, req.user.id]);
 
     const updatedUser = await db.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
     return res.status(200).json({
@@ -123,7 +124,8 @@ export async function updateProfile(req, res) {
         ...updatedUser,
         themeColor: updatedUser.themeColor || 'green',
         fontSize: updatedUser.fontSize || 'medium',
-        theme: updatedUser.theme || 'dark'
+        theme: updatedUser.theme || 'dark',
+        chatBgPattern: updatedUser.chatBgPattern || 'dots'
       }
     });
   } catch (err) {
