@@ -80,6 +80,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// Trust proxy headers so express-rate-limit sees real client IPs behind Render/Vercel/etc.
+app.set('trust proxy', 1);
+
 const httpServer = createServer(app);
 
 // Configure allowed origins dynamically to support local dev, vercel previews, and production domains
@@ -93,6 +97,10 @@ const corsOrigin = (origin, callback) => {
   if (!origin) return callback(null, true);
   const isAllowed = allowedOrigins.includes(origin) || 
                     origin.endsWith('.vercel.app') || 
+                    origin.endsWith('.netlify.app') || 
+                    origin.endsWith('.web.app') || 
+                    origin.endsWith('.github.io') || 
+                    origin.endsWith('.onrender.com') || 
                     origin.startsWith('http://localhost') || 
                     origin.startsWith('http://127.0.0.1');
   if (isAllowed) {
@@ -144,10 +152,6 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
 
-// Apply rate limiting
-app.use('/api', generalLimiter);
-app.use('/api/auth/otp', authLimiter);
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -155,12 +159,16 @@ app.use(cookieParser());
 // Static file serving for uploads (avatars, attachments, stories)
 app.use('/uploads', express.static(UPLOADS_DIR));
 
-// --- API Routes ---
-
-// Health Check
+// Health Check — placed BEFORE rate limiters so it is never throttled
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: Date.now() });
 });
+
+// Apply rate limiting AFTER health check
+app.use('/api', generalLimiter);
+app.use('/api/auth/otp', authLimiter);
+
+// --- API Routes ---
 
 // Authentication
 app.post('/api/auth/otp/request', requestOtp);
