@@ -245,6 +245,21 @@ async function initializeSchema(db) {
       FOREIGN KEY (friendId) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+
+  // 12. Call History Table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS calls (
+      id TEXT PRIMARY KEY,
+      callerId TEXT NOT NULL,
+      receiverId TEXT NOT NULL,
+      status TEXT NOT NULL, -- 'missed', 'incoming', 'outgoing'
+      duration INTEGER DEFAULT 0, -- in seconds
+      createdAt INTEGER NOT NULL,
+      FOREIGN KEY (callerId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (receiverId) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
   const superAdminEmail = 'admin@securechat.com';
   const existingAdmin = await db.get('SELECT * FROM users WHERE email = ?', [superAdminEmail]);
   if (!existingAdmin) {

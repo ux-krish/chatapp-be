@@ -76,6 +76,12 @@ import {
   broadcastSystemMessage
 } from './controllers/admin.controller.js';
 
+import {
+  logCall,
+  getCallHistory,
+  clearCallHistory
+} from './controllers/call.controller.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -222,6 +228,11 @@ app.post('/api/stories', authenticateToken, uploadMedia, createStory);
 app.get('/api/stories', authenticateToken, getStories);
 app.post('/api/stories/:storyId/view', authenticateToken, viewStory);
 app.get('/api/stories/:storyId/viewers', authenticateToken, getStoryViewers);
+
+// Call History
+app.post('/api/calls', authenticateToken, logCall);
+app.get('/api/calls', authenticateToken, getCallHistory);
+app.delete('/api/calls', authenticateToken, clearCallHistory);
 
 // Admin Dashboard
 app.get('/api/admin/stats', authenticateToken, requireAdmin, getSystemStats);
