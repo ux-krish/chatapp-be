@@ -12,8 +12,20 @@ export async function getDb() {
   // Ensure uploads directories exist
   if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-    fs.mkdirSync(path.join(UPLOADS_DIR, 'avatars'), { recursive: true });
-    fs.mkdirSync(path.join(UPLOADS_DIR, 'media'), { recursive: true });
+  }
+  const avatarsDir = path.join(UPLOADS_DIR, 'avatars');
+  const mediaDir = path.join(UPLOADS_DIR, 'media');
+  if (!fs.existsSync(avatarsDir)) {
+    fs.mkdirSync(avatarsDir, { recursive: true });
+  }
+  if (!fs.existsSync(mediaDir)) {
+    fs.mkdirSync(mediaDir, { recursive: true });
+  }
+
+  // Ensure DB parent directory exists
+  const dbDir = path.dirname(DB_PATH);
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
   }
 
   // Open DB
@@ -46,6 +58,8 @@ async function initializeSchema(db) {
       isBanned INTEGER DEFAULT 0, -- 0: active, 1: banned
       password TEXT,
       twoFactorEnabled INTEGER DEFAULT 0,
+      themeColor TEXT DEFAULT 'green',
+      fontSize TEXT DEFAULT 'medium',
       createdAt INTEGER NOT NULL
     );
   `);
@@ -62,6 +76,12 @@ async function initializeSchema(db) {
   } catch (e) {}
   try {
     await db.exec("ALTER TABLE users ADD COLUMN twoFactorEnabled INTEGER DEFAULT 0;");
+  } catch (e) {}
+  try {
+    await db.exec("ALTER TABLE users ADD COLUMN themeColor TEXT DEFAULT 'green';");
+  } catch (e) {}
+  try {
+    await db.exec("ALTER TABLE users ADD COLUMN fontSize TEXT DEFAULT 'medium';");
   } catch (e) {}
 
   // 2. OTPs Table

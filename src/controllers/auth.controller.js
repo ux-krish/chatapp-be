@@ -1,5 +1,6 @@
 import dns from 'dns';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { getDb } from '../db/sqlite.js';
 import { otpService } from '../services/otp.service.js';
 import { jwtService } from '../services/jwt.service.js';
@@ -21,6 +22,8 @@ const serializeUser = (user) => {
     isBanned: user.isBanned || 0,
     twoFactorEnabled: !!user.twoFactorEnabled,
     hasPassword: !!user.password,
+    themeColor: user.themeColor || 'green',
+    fontSize: user.fontSize || 'medium',
     createdAt: user.createdAt
   };
 };
@@ -261,9 +264,18 @@ export async function refreshToken(req, res) {
 
 export async function logout(req, res) {
   try {
-    // If authenticated, we can optionally set them offline
-    if (req.cookies && req.cookies.accessToken) {
-      const decoded = jwtService.verifyAccessToken(req.cookies.accessToken);
+    let token = null;
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    }
+    if (!token && req.cookies) {
+      token = req.cookies.accessToken;
+    }
+
+    // If authenticated, set them offline in the database
+    if (token) {
+      const decoded = jwtService.verifyAccessToken(token);
       if (decoded) {
         const db = await getDb();
         await db.run("UPDATE users SET status = 'offline', lastSeen = ? WHERE id = ?", [Date.now(), decoded.id]);
@@ -291,7 +303,7 @@ export async function googleAuth(req, res) {
   const isDevOrTest = NODE_ENV === 'development' || global.firebase_mock_override;
   const isMockToken = idToken === 'mock_google_id_token' || idToken.startsWith('mock_');
 
-  if (!isInitialized && !(isDevOrTest && isMockToken)) {
+  if (!isInitialized && !isDevOrTest) {
     return res.status(500).json({ error: 'Firebase Auth is currently not configured on this server.' });
   }
 
@@ -314,8 +326,24 @@ export async function googleAuth(req, res) {
         };
       }
     } else {
-      // 1. Verify Google ID Token via Firebase Admin SDK
-      decodedToken = await admin.auth().verifyIdToken(idToken);
+      try {
+        if (!isInitialized) {
+          throw new Error('Firebase Admin SDK is not initialized on this server.');
+        }
+        // 1. Verify Google ID Token via Firebase Admin SDK
+        decodedToken = await admin.auth().verifyIdToken(idToken);
+      } catch (err) {
+        // In development/test mode, fall back to decoding the token without signature verification
+        if (isDevOrTest) {
+          console.warn('⚠️ Firebase token verification failed. Falling back to decoding in development/test:', err.message);
+          decodedToken = jwt.decode(idToken);
+          if (!decodedToken) {
+            throw err; // rethrow if it wasn't even a valid JWT
+          }
+        } else {
+          throw err;
+        }
+      }
     }
     const { email, name, picture } = decodedToken;
 

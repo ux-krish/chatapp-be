@@ -18,7 +18,7 @@ export async function getProfile(req, res) {
 
 // Update current user profile
 export async function updateProfile(req, res) {
-  const { displayName, bio } = req.body;
+  const { displayName, bio, themeColor, fontSize } = req.body;
   const db = await getDb();
 
   try {
@@ -35,17 +35,23 @@ export async function updateProfile(req, res) {
 
     const newDisplayName = displayName !== undefined ? displayName.trim() : user.displayName;
     const newBio = bio !== undefined ? bio.trim() : user.bio;
+    const newThemeColor = themeColor !== undefined ? themeColor.trim() : (user.themeColor || 'green');
+    const newFontSize = fontSize !== undefined ? fontSize.trim() : (user.fontSize || 'medium');
 
     await db.run(`
       UPDATE users 
-      SET displayName = ?, bio = ?, avatarUrl = ? 
+      SET displayName = ?, bio = ?, avatarUrl = ?, themeColor = ?, fontSize = ? 
       WHERE id = ?
-    `, [newDisplayName, newBio, avatarUrl, req.user.id]);
+    `, [newDisplayName, newBio, avatarUrl, newThemeColor, newFontSize, req.user.id]);
 
     const updatedUser = await db.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
     return res.status(200).json({
       message: 'Profile updated successfully.',
-      user: updatedUser
+      user: {
+        ...updatedUser,
+        themeColor: updatedUser.themeColor || 'green',
+        fontSize: updatedUser.fontSize || 'medium'
+      }
     });
   } catch (err) {
     console.error('Error updating profile:', err);

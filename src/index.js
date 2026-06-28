@@ -104,9 +104,10 @@ const io = new Server(httpServer, {
 
 // --- Security Protection Middlewares ---
 
-// Secure HTTP Headers (configured to allow cross-origin image loading for static uploads)
+// Secure HTTP Headers (configured to allow cross-origin image loading for static uploads and Google Auth popups)
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' }
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' }
 }));
 
 // General API Rate Limiting (100 requests per 15 minutes)
@@ -127,16 +128,17 @@ const authLimiter = rateLimit({
   message: { error: 'Too many authentication attempts. Please try again in an hour.' }
 });
 
-// Apply rate limiting
-app.use('/api', generalLimiter);
-app.use('/api/auth/otp', authLimiter);
-
 // Middlewares
 app.use(cors({
   origin: corsOrigin,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
+
+// Apply rate limiting
+app.use('/api', generalLimiter);
+app.use('/api/auth/otp', authLimiter);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
