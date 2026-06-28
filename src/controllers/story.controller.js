@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+import { UPLOADS_DIR } from '../config/config.js';
 import { getDb } from '../db/sqlite.js';
 
 // Post a status/story
@@ -16,7 +19,37 @@ export async function createStory(req, res) {
     // Determine media type
     const mime = req.file.mimetype;
     const mediaType = mime.startsWith('video/') ? 'video' : 'image';
-    const mediaUrl = `/uploads/media/${req.file.filename}`;
+    
+    const localFilePath = req.file.path;
+    const filename = req.file.filename;
+    let mediaUrl = `/uploads/media/${filename}`;
+
+    // Check if Firebase Admin is configured and initialized
+    let isFbInit = false;
+    let adminSdk = null;
+    try {
+      const fbModule = await import('../db/firebase.js');
+      isFbInit = fbModule.isInitialized;
+      adminSdk = fbModule.admin;
+    } catch (fbImportErr) {
+      console.warn('Firebase module import failed:', fbImportErr.message);
+    }
+
+    if (isFbInit && adminSdk) {
+      try {
+        const { uploadFileToFirebase } = await import('../services/storage.service.js');
+        console.log(`☁️ Uploading story media ${filename} to Firebase Storage...`);
+        mediaUrl = await uploadFileToFirebase(localFilePath, filename, 'media');
+        console.log(`☁️ Uploaded successfully to Firebase Storage: ${mediaUrl}`);
+
+        // Delete the temporary file on local disk
+        if (fs.existsSync(localFilePath)) {
+          fs.unlinkSync(localFilePath);
+        }
+      } catch (fbUploadErr) {
+        console.error('Failed to upload to Firebase Storage, falling back to local storage:', fbUploadErr);
+      }
+    }
 
     await db.run(`
       INSERT INTO stories (id, userId, mediaUrl, mediaType, caption, expiresAt, createdAt)

@@ -46,7 +46,8 @@ import {
   getGroups,
   getGroupInfo,
   addGroupMembers,
-  leaveGroup
+  leaveGroup,
+  downloadFileProxy
 } from './controllers/chat.controller.js';
 
 import {
@@ -179,6 +180,7 @@ app.delete('/api/users/friends/remove', authenticateToken, removeFriend);
 // Chat & History
 app.get('/api/chat/history/:chatId', authenticateToken, getChatHistory);
 app.post('/api/chat/media/upload', authenticateToken, uploadMedia, uploadMediaAttachment);
+app.get('/api/chat/download', authenticateToken, downloadFileProxy);
 
 // Group Chats
 app.post('/api/chat/groups', authenticateToken, uploadAvatar, createGroup);

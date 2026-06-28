@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+import { UPLOADS_DIR } from '../config/config.js';
 import { getDb } from '../db/sqlite.js';
 import { emitToUser, emitToRoom, makeUserJoinRoom } from '../socket/socket.handler.js';
 
@@ -86,7 +89,36 @@ export async function uploadMediaAttachment(req, res) {
     else if (mime.startsWith('video/')) type = 'video';
     else if (mime.startsWith('audio/')) type = 'audio';
 
-    const mediaUrl = `/uploads/media/${req.file.filename}`;
+    const localFilePath = req.file.path;
+    const filename = req.file.filename;
+    let mediaUrl = `/uploads/media/${filename}`;
+
+    // Check if Firebase Admin is configured and initialized
+    let isFbInit = false;
+    let adminSdk = null;
+    try {
+      const fbModule = await import('../db/firebase.js');
+      isFbInit = fbModule.isInitialized;
+      adminSdk = fbModule.admin;
+    } catch (fbImportErr) {
+      console.warn('Firebase module import failed:', fbImportErr.message);
+    }
+
+    if (isFbInit && adminSdk) {
+      try {
+        const { uploadFileToFirebase } = await import('../services/storage.service.js');
+        console.log(`☁️ Uploading media attachment ${filename} to Firebase Storage...`);
+        mediaUrl = await uploadFileToFirebase(localFilePath, filename, 'media');
+        console.log(`☁️ Uploaded successfully to Firebase Storage: ${mediaUrl}`);
+
+        // Delete the temporary file on local disk
+        if (fs.existsSync(localFilePath)) {
+          fs.unlinkSync(localFilePath);
+        }
+      } catch (fbUploadErr) {
+        console.error('Failed to upload to Firebase Storage, falling back to local storage:', fbUploadErr);
+      }
+    }
 
     return res.status(200).json({
       mediaUrl,
@@ -97,6 +129,45 @@ export async function uploadMediaAttachment(req, res) {
   } catch (err) {
     console.error('Error uploading media:', err);
     return res.status(500).json({ error: 'Failed to upload media file.' });
+  }
+}
+
+// Proxy file download endpoint to avoid CORS issues and force local download folder save
+export async function downloadFileProxy(req, res) {
+  const { url, filename } = req.query;
+  if (!url) {
+    return res.status(400).json({ error: 'URL is required.' });
+  }
+
+  try {
+    // If it is a local upload, serve directly from disk
+    if (url.startsWith('/uploads')) {
+      const relativePath = url.replace('/uploads', '');
+      const absolutePath = path.join(UPLOADS_DIR, relativePath);
+      if (fs.existsSync(absolutePath)) {
+        return res.download(absolutePath, filename || path.basename(absolutePath));
+      }
+      return res.status(404).json({ error: 'File not found.' });
+    }
+
+    // Otherwise, fetch the file from remote (e.g. Firebase Storage)
+    const response = await fetch(url);
+    if (!response.ok) {
+      return res.status(response.status).json({ error: 'Failed to fetch remote resource.' });
+    }
+
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    
+    const safeFilename = filename || url.split('/').pop().split('?')[0] || 'download';
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(safeFilename)}"`);
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    return res.send(buffer);
+  } catch (err) {
+    console.error('Error in download file proxy:', err);
+    return res.status(500).json({ error: 'Failed to download file.' });
   }
 }
 

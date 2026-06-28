@@ -15,6 +15,11 @@ export async function authenticateToken(req, reqRes, next) {
     token = req.cookies.accessToken;
   }
 
+  // Try reading from query parameters (useful for media downloads)
+  if (!token && req.query && req.query.token) {
+    token = req.query.token;
+  }
+
   if (!token) {
     return reqRes.status(401).json({ error: 'Access denied. No token provided.' });
   }

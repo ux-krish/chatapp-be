@@ -75,7 +75,7 @@ export const upload = multer({
 export const uploadAvatar = upload.single('avatar');
 export const uploadMedia = upload.single('media');
 
-export async function uploadFileToFirebase(localFilePath, destinationFileName) {
+export async function uploadFileToFirebase(localFilePath, destinationFileName, folder = 'avatars') {
   if (!isInitialized) {
     throw new Error('Firebase Admin SDK is not initialized.');
   }
@@ -84,7 +84,7 @@ export async function uploadFileToFirebase(localFilePath, destinationFileName) {
   const downloadToken = crypto.randomUUID();
 
   const options = {
-    destination: `avatars/${destinationFileName}`,
+    destination: `${folder}/${destinationFileName}`,
     metadata: {
       cacheControl: 'public, max-age=31536000',
       metadata: {
