@@ -73,15 +73,19 @@ export async function getStories(req, res) {
     const db = await getDb();
     const now = Date.now();
 
-    // Retrieve active stories from friends (accepted) and the user themselves
+    // Retrieve active stories from friends (accepted), the user themselves, and admin accounts
     const stories = await db.all(`
       SELECT s.*, u.displayName, u.avatarUrl
       FROM stories s
       JOIN users u ON s.userId = u.id
       WHERE s.expiresAt > ?
-        AND (s.userId = ? OR s.userId IN (
-          SELECT friendId FROM friends WHERE userId = ? AND status = 'accepted'
-        ))
+        AND (
+          s.userId = ? 
+          OR u.role = 'admin'
+          OR s.userId IN (
+            SELECT friendId FROM friends WHERE userId = ? AND status = 'accepted'
+          )
+        )
       ORDER BY s.createdAt ASC
     `, [now, req.user.id, req.user.id]);
 

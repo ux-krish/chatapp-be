@@ -37,6 +37,14 @@ export function makeUserJoinRoom(userId, room) {
   return false;
 }
 
+export function broadcastSystemEvent(event, data) {
+  if (ioInstance) {
+    ioInstance.emit(event, data);
+    return true;
+  }
+  return false;
+}
+
 
 export function setupSocketHandler(io) {
   ioInstance = io;

@@ -1,5 +1,7 @@
+import fs from 'fs';
 import { getDb } from '../db/sqlite.js';
-import { emitToUser, emitToRoom, disconnectUserSockets } from '../socket/socket.handler.js';
+import { DB_PATH } from '../config/config.js';
+import { emitToUser, emitToRoom, disconnectUserSockets, broadcastSystemEvent } from '../socket/socket.handler.js';
 
 // Get comprehensive system stats and analytics
 export async function getSystemStats(req, res) {
@@ -13,6 +15,33 @@ export async function getSystemStats(req, res) {
     const totalGroups = await db.get('SELECT COUNT(*) AS count FROM groups');
     const activeStories = await db.get('SELECT COUNT(*) AS count FROM stories WHERE expiresAt > ?', [now]);
 
+    // Role distribution
+    const adminCount = await db.get("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'");
+    const userCount = totalUsers.count - adminCount.count;
+
+    // Message type distribution
+    const msgTypeCounts = await db.all("SELECT type, COUNT(*) AS count FROM messages GROUP BY type");
+    const messageTypes = { text: 0, image: 0, video: 0, audio: 0, file: 0 };
+    msgTypeCounts.forEach(row => {
+      if (messageTypes[row.type] !== undefined) {
+        messageTypes[row.type] = row.count;
+      }
+    });
+
+    // Banned distribution
+    const bannedCount = await db.get("SELECT COUNT(*) AS count FROM users WHERE isBanned = 1");
+
+    // DB File details
+    let dbSize = 0;
+    try {
+      if (fs.existsSync(DB_PATH)) {
+        dbSize = fs.statSync(DB_PATH).size;
+      }
+    } catch (e) {}
+
+    // Memory usage
+    const memUsage = process.memoryUsage();
+
     return res.status(200).json({
       totalUsers: totalUsers.count,
       onlineUsers: onlineUsers.count,
@@ -20,7 +49,20 @@ export async function getSystemStats(req, res) {
       totalGroups: totalGroups.count,
       activeStories: activeStories.count,
       serverUptime: process.uptime(),
-      dbConnected: true
+      dbConnected: true,
+      analytics: {
+        roles: { admin: adminCount.count, user: userCount },
+        messageTypes,
+        banned: bannedCount.count,
+        dbSize,
+        system: {
+          nodeVersion: process.version,
+          platform: process.platform,
+          arch: process.arch,
+          heapUsed: memUsage.heapUsed,
+          rss: memUsage.rss
+        }
+      }
     });
   } catch (err) {
     console.error('Error fetching admin system stats:', err);
@@ -272,5 +314,125 @@ export async function deleteMessage(req, res) {
   } catch (err) {
     console.error('Error deleting message:', err);
     return res.status(500).json({ error: 'Failed to delete message.' });
+  }
+}
+
+// Run database maintenance commands (integrity check or vacuum)
+export async function runDbMaintenance(req, res) {
+  const { action } = req.body; // 'integrity_check' | 'vacuum'
+  
+  if (action !== 'integrity_check' && action !== 'vacuum') {
+    return res.status(400).json({ error: 'Invalid maintenance action.' });
+  }
+
+  try {
+    const db = await getDb();
+    if (action === 'integrity_check') {
+      const result = await db.get('PRAGMA integrity_check;');
+      return res.status(200).json({ 
+        message: 'Integrity check completed.', 
+        result: result.integrity_check 
+      });
+    } else {
+      await db.run('VACUUM;');
+      
+      // Get new db file size
+      let dbSize = 0;
+      try {
+        if (fs.existsSync(DB_PATH)) {
+          dbSize = fs.statSync(DB_PATH).size;
+        }
+      } catch (e) {}
+
+      return res.status(200).json({ 
+        message: 'Database vacuumed and compressed successfully.', 
+        dbSize 
+      });
+    }
+  } catch (err) {
+    console.error('Error in DB maintenance:', err);
+    return res.status(500).json({ error: 'Failed to complete maintenance operation.' });
+  }
+}
+
+// Send system broadcast to all active connections
+export async function broadcastSystemMessage(req, res) {
+  const { message, severity } = req.body; // severity: 'info' | 'warning' | 'danger'
+  if (!message || message.trim().length === 0) {
+    return res.status(400).json({ error: 'Broadcast message content is required.' });
+  }
+
+  try {
+    let mediaUrl = null;
+    let mediaType = null;
+
+    if (req.file) {
+      const localFilePath = req.file.path;
+      const filename = req.file.filename;
+      mediaUrl = `/uploads/media/${filename}`;
+      mediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+
+      // Check if Firebase is initialized
+      let isFbInit = false;
+      let adminSdk = null;
+      try {
+        const fbModule = await import('../db/firebase.js');
+        isFbInit = fbModule.isInitialized;
+        adminSdk = fbModule.admin;
+      } catch (fbImportErr) {
+        console.warn('Firebase module import failed:', fbImportErr.message);
+      }
+
+      if (isFbInit && adminSdk) {
+        try {
+          const { uploadFileToFirebase } = await import('../services/storage.service.js');
+          console.log(`☁️ Uploading broadcast media ${filename} to Firebase Storage...`);
+          mediaUrl = await uploadFileToFirebase(localFilePath, filename, 'media');
+          console.log(`☁️ Uploaded successfully to Firebase Storage: ${mediaUrl}`);
+
+          // Delete local temp file
+          if (fs.existsSync(localFilePath)) {
+            fs.unlinkSync(localFilePath);
+          }
+        } catch (fbUploadErr) {
+          console.error('Failed to upload broadcast media to Firebase Storage:', fbUploadErr);
+        }
+      }
+    }
+
+    const db = await getDb();
+    const now = Date.now();
+
+    // If an image/media was uploaded, also store this broadcast as a status/story posted by the admin
+    if (mediaUrl) {
+      const storyId = 'sty_' + Date.now() + Math.random().toString(36).substr(2, 9);
+      const expiresAt = now + 24 * 60 * 60 * 1000; // 24 hours expiry
+      await db.run(`
+        INSERT INTO stories (id, userId, mediaUrl, mediaType, caption, expiresAt, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `, [storyId, req.user.id, mediaUrl, mediaType || 'image', message.trim(), expiresAt, now]);
+      console.log(`📢 Broadcast story published in database: ${storyId}`);
+    }
+
+    const success = broadcastSystemEvent('system_broadcast', {
+      id: 'sys_' + Date.now(),
+      message: message.trim(),
+      severity: severity || 'info',
+      mediaUrl,
+      mediaType,
+      timestamp: now
+    });
+
+    if (success) {
+      return res.status(200).json({ 
+        message: 'Broadcast alert and status story published successfully.',
+        mediaUrl
+      });
+    } else {
+      return res.status(500).json({ error: 'Socket server instance not active.' });
+    }
+  } catch (err) {
+    console.error('Error broadcasting system alert:', err);
+    return res.status(500).json({ error: 'Failed to broadcast message.' });
   }
 }

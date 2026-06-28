@@ -65,7 +65,9 @@ import {
   deleteUser,
   getAllChats,
   deleteGroup,
-  deleteMessage
+  deleteMessage,
+  runDbMaintenance,
+  broadcastSystemMessage
 } from './controllers/admin.controller.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -204,6 +206,8 @@ app.delete('/api/admin/users/:userId', authenticateToken, requireAdmin, deleteUs
 app.get('/api/admin/chats', authenticateToken, requireAdmin, getAllChats);
 app.delete('/api/admin/chats/groups/:groupId', authenticateToken, requireAdmin, deleteGroup);
 app.delete('/api/admin/messages/:messageId', authenticateToken, requireAdmin, deleteMessage);
+app.post('/api/admin/maintenance', authenticateToken, requireAdmin, runDbMaintenance);
+app.post('/api/admin/broadcast', authenticateToken, requireAdmin, uploadMedia, broadcastSystemMessage);
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {
