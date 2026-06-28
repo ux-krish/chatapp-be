@@ -73,12 +73,21 @@ export async function updateProfile(req, res) {
               fs.unlinkSync(oldAbsolutePath);
               console.log(`🧹 Deleted old avatar file from disk: ${oldAbsolutePath}`);
             }
-          } else if (isFbInit && adminSdk && user.avatarUrl.includes('storage.googleapis.com')) {
+          } else if (isFbInit && adminSdk && (user.avatarUrl.includes('storage.googleapis.com') || user.avatarUrl.includes('firebasestorage.googleapis.com'))) {
             try {
               const bucket = adminSdk.storage().bucket();
-              const prefix = `https://storage.googleapis.com/${bucket.name}/`;
-              if (user.avatarUrl.startsWith(prefix)) {
-                const firebaseFilePath = user.avatarUrl.replace(prefix, '');
+              const gcsPrefix = `https://storage.googleapis.com/${bucket.name}/`;
+              const fbPrefix = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/`;
+              
+              let firebaseFilePath = null;
+              if (user.avatarUrl.startsWith(gcsPrefix)) {
+                firebaseFilePath = user.avatarUrl.replace(gcsPrefix, '');
+              } else if (user.avatarUrl.startsWith(fbPrefix)) {
+                const urlWithoutParams = user.avatarUrl.split('?')[0];
+                firebaseFilePath = decodeURIComponent(urlWithoutParams.replace(fbPrefix, ''));
+              }
+
+              if (firebaseFilePath) {
                 const fileRef = bucket.file(firebaseFilePath);
                 await fileRef.delete();
                 console.log(`🧹 Deleted old avatar from Firebase Storage: ${firebaseFilePath}`);

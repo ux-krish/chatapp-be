@@ -1,6 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { UPLOADS_DIR } from '../config/config.js';
 import { admin, isInitialized } from '../db/firebase.js';
 
@@ -80,16 +81,20 @@ export async function uploadFileToFirebase(localFilePath, destinationFileName) {
   }
 
   const bucket = admin.storage().bucket();
+  const downloadToken = crypto.randomUUID();
+
   const options = {
     destination: `avatars/${destinationFileName}`,
-    public: true,
     metadata: {
       cacheControl: 'public, max-age=31536000',
+      metadata: {
+        firebaseStorageDownloadTokens: downloadToken
+      }
     }
   };
 
   const [file] = await bucket.upload(localFilePath, options);
   
-  // Return public url
-  return `https://storage.googleapis.com/${bucket.name}/${file.name}`;
+  // Return standard Firebase Storage download URL
+  return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(file.name)}?alt=media&token=${downloadToken}`;
 }
