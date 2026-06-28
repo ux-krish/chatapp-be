@@ -17,8 +17,10 @@ try {
   if (fs.existsSync(serviceAccountPath)) {
     console.log('🔑 Initializing Firebase Admin SDK via serviceAccountKey.json...');
     const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+    const projectId = serviceAccount.project_id || process.env.FIREBASE_PROJECT_ID;
     firebaseAdmin.initializeApp({
-      credential: firebaseAdmin.credential.cert(serviceAccount)
+      credential: firebaseAdmin.credential.cert(serviceAccount),
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || (projectId ? `${projectId}.appspot.com` : undefined)
     });
     isInitialized = true;
   } else if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
@@ -42,7 +44,8 @@ try {
         projectId: projectId,
         clientEmail: clientEmail,
         privateKey: privateKey
-      })
+      }),
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${projectId}.appspot.com`
     });
     isInitialized = true;
   } else {

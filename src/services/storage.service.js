@@ -2,6 +2,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { UPLOADS_DIR } from '../config/config.js';
+import { admin, isInitialized } from '../db/firebase.js';
 
 // Setup disk storage
 const storage = multer.diskStorage({
@@ -22,10 +23,17 @@ const storage = multer.diskStorage({
     cb(null, folder);
   },
   filename: (req, file, cb) => {
-    // Generate secure, unique filename: timestamp + random + original extension
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
-    cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+    if (file.fieldname === 'avatar' && req.user && req.user.email && req.originalUrl && req.originalUrl.includes('/users/profile')) {
+      // Clean email to use as a valid filename
+      const cleanEmail = req.user.email.replace(/[^a-zA-Z0-9]/g, '_');
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E5);
+      cb(null, `avatar-${cleanEmail}-${uniqueSuffix}${ext}`);
+    } else {
+      // Generate secure, unique filename: timestamp + random + original extension
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+    }
   }
 });
 
@@ -65,3 +73,23 @@ export const upload = multer({
 // Specific upload middlewares
 export const uploadAvatar = upload.single('avatar');
 export const uploadMedia = upload.single('media');
+
+export async function uploadFileToFirebase(localFilePath, destinationFileName) {
+  if (!isInitialized) {
+    throw new Error('Firebase Admin SDK is not initialized.');
+  }
+
+  const bucket = admin.storage().bucket();
+  const options = {
+    destination: `avatars/${destinationFileName}`,
+    public: true,
+    metadata: {
+      cacheControl: 'public, max-age=31536000',
+    }
+  };
+
+  const [file] = await bucket.upload(localFilePath, options);
+  
+  // Return public url
+  return `https://storage.googleapis.com/${bucket.name}/${file.name}`;
+}

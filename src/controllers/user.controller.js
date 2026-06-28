@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+import { UPLOADS_DIR } from '../config/config.js';
 import { getDb } from '../db/sqlite.js';
 import { emitToUser } from '../socket/socket.handler.js';
 
@@ -29,8 +32,67 @@ export async function updateProfile(req, res) {
 
     let avatarUrl = user.avatarUrl;
     if (req.file) {
-      // Multer uploaded the avatar. Build the relative static path
-      avatarUrl = `/uploads/avatars/${req.file.filename}`;
+      const localFilePath = req.file.path;
+      const filename = req.file.filename;
+      let newAvatarUrl = `/uploads/avatars/${filename}`;
+
+      // Check if Firebase Admin is configured and initialized
+      let isFbInit = false;
+      let adminSdk = null;
+      try {
+        const fbModule = await import('../db/firebase.js');
+        isFbInit = fbModule.isInitialized;
+        adminSdk = fbModule.admin;
+      } catch (fbImportErr) {
+        console.warn('Firebase module import failed:', fbImportErr.message);
+      }
+
+      if (isFbInit && adminSdk) {
+        try {
+          const { uploadFileToFirebase } = await import('../services/storage.service.js');
+          console.log(`☁️ Uploading avatar ${filename} to Firebase Storage...`);
+          newAvatarUrl = await uploadFileToFirebase(localFilePath, filename);
+          console.log(`☁️ Uploaded successfully to Firebase Storage: ${newAvatarUrl}`);
+
+          // Delete the temporary file on local disk
+          if (fs.existsSync(localFilePath)) {
+            fs.unlinkSync(localFilePath);
+          }
+        } catch (fbUploadErr) {
+          console.error('Failed to upload to Firebase Storage, falling back to local storage:', fbUploadErr);
+        }
+      }
+
+      // Delete old avatar if it exists and is different from the new one
+      if (user.avatarUrl && user.avatarUrl !== newAvatarUrl) {
+        try {
+          if (user.avatarUrl.startsWith('/uploads')) {
+            const oldRelativePath = user.avatarUrl.replace('/uploads', '');
+            const oldAbsolutePath = path.join(UPLOADS_DIR, oldRelativePath);
+            if (fs.existsSync(oldAbsolutePath)) {
+              fs.unlinkSync(oldAbsolutePath);
+              console.log(`🧹 Deleted old avatar file from disk: ${oldAbsolutePath}`);
+            }
+          } else if (isFbInit && adminSdk && user.avatarUrl.includes('storage.googleapis.com')) {
+            try {
+              const bucket = adminSdk.storage().bucket();
+              const prefix = `https://storage.googleapis.com/${bucket.name}/`;
+              if (user.avatarUrl.startsWith(prefix)) {
+                const firebaseFilePath = user.avatarUrl.replace(prefix, '');
+                const fileRef = bucket.file(firebaseFilePath);
+                await fileRef.delete();
+                console.log(`🧹 Deleted old avatar from Firebase Storage: ${firebaseFilePath}`);
+              }
+            } catch (fbDelErr) {
+              console.warn('Failed to delete old avatar from Firebase Storage:', fbDelErr.message);
+            }
+          }
+        } catch (unlinkErr) {
+          console.error('Failed to clean up old avatar file:', unlinkErr);
+        }
+      }
+      
+      avatarUrl = newAvatarUrl;
     }
 
     const newDisplayName = displayName !== undefined ? displayName.trim() : user.displayName;
@@ -151,7 +213,33 @@ export async function getFriends(req, res) {
       ORDER BY f.status ASC, u.displayName ASC
     `, [req.user.id]);
 
-    return res.status(200).json(friends);
+    const result = [];
+    for (const friend of friends) {
+      const chatId = [req.user.id, friend.id].sort().join('_');
+      
+      const lastMessage = await db.get(`
+        SELECT m.*, u.displayName AS senderName
+        FROM messages m
+        JOIN users u ON m.senderId = u.id
+        WHERE m.chatId = ?
+        ORDER BY m.createdAt DESC
+        LIMIT 1
+      `, [chatId]);
+
+      const unreadCountRow = await db.get(`
+        SELECT COUNT(*) AS count 
+        FROM messages 
+        WHERE chatId = ? AND senderId = ? AND status != 'read'
+      `, [chatId, friend.id]);
+
+      result.push({
+        ...friend,
+        lastMessage: lastMessage || null,
+        unreadCount: unreadCountRow ? unreadCountRow.count : 0
+      });
+    }
+
+    return res.status(200).json(result);
   } catch (err) {
     console.error('Error getting friends:', err);
     return res.status(500).json({ error: 'Failed to retrieve friends list.' });
