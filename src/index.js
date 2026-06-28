@@ -246,6 +246,202 @@ app.delete('/api/admin/messages/:messageId', authenticateToken, requireAdmin, de
 app.post('/api/admin/maintenance', authenticateToken, requireAdmin, runDbMaintenance);
 app.post('/api/admin/broadcast', authenticateToken, requireAdmin, uploadMedia, broadcastSystemMessage);
 
+app.get('/mobile-login-gateway', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Lynq Authentication</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      background-color: #09090b;
+      color: #f4f4f5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: rgba(24, 24, 27, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 24px;
+      padding: 32px;
+      max-width: 400px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(20px);
+    }
+    .spinner {
+      height: 48px;
+      width: 48px;
+      border: 4px solid rgba(16, 185, 129, 0.1);
+      border-top-color: #10b981;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 24px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #ffffff;
+    }
+    p {
+      color: #a1a1aa;
+      font-size: 14px;
+      line-height: 1.5;
+      margin: 0 0 24px;
+    }
+    .btn {
+      background-color: #10b981;
+      color: #09090b;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      width: 100%;
+      display: inline-block;
+      text-decoration: none;
+      text-align: center;
+    }
+    .btn:hover {
+      background-color: #34d399;
+    }
+    .error {
+      color: #ef4444;
+      font-size: 13px;
+      margin-top: 16px;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="spinner" class="spinner"></div>
+    <h1 id="status">Connecting...</h1>
+    <p id="description">Initializing secure authentication gateway...</p>
+    <div id="action-container"></div>
+  </div>
+
+  <!-- Firebase App & Auth from CDN -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getAuth, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+    // Parse config from query params
+    const params = new URLSearchParams(window.location.search);
+    const isMock = params.get('isMock') === 'true';
+    const firebaseConfig = {
+      apiKey: params.get('apiKey'),
+      authDomain: params.get('authDomain'),
+      projectId: params.get('projectId'),
+      appId: params.get('appId')
+    };
+
+    const statusEl = document.getElementById('status');
+    const descEl = document.getElementById('description');
+    const actionEl = document.getElementById('action-container');
+
+    const showError = (msg) => {
+      statusEl.textContent = "Authentication Failed";
+      descEl.innerHTML = '<span class="error">' + msg + '</span>';
+      document.getElementById('spinner').style.display = 'none';
+      actionEl.innerHTML = '<button onclick="window.location.reload()" class="btn">Retry Sign-In</button>';
+    };
+
+    if (isMock) {
+      statusEl.textContent = "Processing Mock Sign-In...";
+      descEl.textContent = "Exchanging mock developer credentials...";
+      setTimeout(async () => {
+        try {
+          const response = await fetch('/api/auth/google', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken: 'mock_google_id_token' })
+          });
+          if (!response.ok) {
+            throw new Error("Backend verification failed: " + response.statusText);
+          }
+          const data = await response.json();
+          statusEl.textContent = "Authenticated!";
+          descEl.textContent = "Redirecting you back to the Lynq app...";
+          document.getElementById('spinner').style.display = 'none';
+
+          const deepLink = 'lynq://auth-success?accessToken=' + encodeURIComponent(data.accessToken) + '&refreshToken=' + encodeURIComponent(data.refreshToken);
+          window.location.href = deepLink;
+          actionEl.innerHTML = '<a href="' + deepLink + '" class="btn">Return to Lynq App</a>';
+        } catch (err) {
+          showError(err.message);
+        }
+      }, 1200);
+    } else {
+      if (!firebaseConfig.apiKey || !firebaseConfig.authDomain) {
+        showError("Missing Firebase configuration parameters in URL.");
+      } else {
+        try {
+          const app = initializeApp(firebaseConfig);
+          const auth = getAuth(app);
+          const provider = new GoogleAuthProvider();
+          provider.addScope('email');
+          provider.addScope('profile');
+
+          statusEl.textContent = "Google Sign-In Active";
+          descEl.textContent = "Please complete the authentication popup to log into Lynq.";
+
+          signInWithPopup(auth, provider).then(async (result) => {
+            statusEl.textContent = "Verifying Sign-In...";
+            descEl.textContent = "Exchanging credentials with Lynq Secure Servers...";
+            const idToken = await result.user.getIdToken();
+
+            const response = await fetch('/api/auth/google', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ idToken })
+            });
+
+            if (!response.ok) {
+              throw new Error("Backend verification failed: " + response.statusText);
+            }
+
+            const data = await response.json();
+            statusEl.textContent = "Authenticated!";
+            descEl.textContent = "Redirecting you back to the Lynq app...";
+            document.getElementById('spinner').style.display = 'none';
+
+            // Deep link redirect
+            const deepLink = 'lynq://auth-success?accessToken=' + encodeURIComponent(data.accessToken) + '&refreshToken=' + encodeURIComponent(data.refreshToken);
+            window.location.href = deepLink;
+
+            actionEl.innerHTML = '<a href="' + deepLink + '" class="btn">Return to Lynq App</a>' +
+              '<p style="margin-top: 16px; font-size: 12px; color: #71717a;">If you are not redirected automatically, click the button above.</p>';
+          }).catch((err) => {
+            console.error(err);
+            showError(err.message);
+          });
+        } catch (err) {
+          console.error(err);
+          showError(err.message);
+        }
+      }
+    }
+  </script>
+</body>
+</html>`);
+});
+
 // Error Handling Middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled Server Error:', err);
