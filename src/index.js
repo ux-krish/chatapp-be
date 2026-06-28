@@ -36,7 +36,13 @@ import {
   sendFriendRequest,
   respondFriendRequest,
   removeFriend,
-  deleteSelf
+  deleteSelf,
+  blockUser,
+  unblockUser,
+  pinChat,
+  unpinChat,
+  hideChat,
+  unhideChat
 } from './controllers/user.controller.js';
 
 import {
@@ -179,6 +185,18 @@ app.post('/api/users/friends/request', authenticateToken, sendFriendRequest);
 app.post('/api/users/friends/respond', authenticateToken, respondFriendRequest);
 app.delete('/api/users/friends/remove', authenticateToken, removeFriend);
 
+// Block / Unblock
+app.post('/api/users/block', authenticateToken, blockUser);
+app.post('/api/users/unblock', authenticateToken, unblockUser);
+
+// Pin / Unpin Chat
+app.post('/api/users/chat/pin', authenticateToken, pinChat);
+app.post('/api/users/chat/unpin', authenticateToken, unpinChat);
+
+// Hide / Unhide Chat
+app.post('/api/users/chat/hide', authenticateToken, hideChat);
+app.post('/api/users/chat/unhide', authenticateToken, unhideChat);
+
 // Chat & History
 app.get('/api/chat/history/:chatId', authenticateToken, getChatHistory);
 app.post('/api/chat/media/upload', authenticateToken, uploadMedia, uploadMediaAttachment);
@@ -226,7 +244,7 @@ async function startServer() {
     console.log('Database connected and schemas synchronized successfully.');
 
     httpServer.listen(PORT, () => {
-      console.log(`\n🚀 SECURE CHAT SERVER RUNNING ON: http://localhost:${PORT}\n`);
+      console.log(`\n🚀 LYNQ SERVER RUNNING ON: http://localhost:${PORT}\n`);
     });
   } catch (err) {
     console.error('Critical failure: Could not start application server.', err);

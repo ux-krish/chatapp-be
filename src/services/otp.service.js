@@ -32,7 +32,7 @@ class OtpService {
     if (!emailSent || NODE_ENV === 'development') {
       console.log('\n┌────────────────────────────────────────┐');
       console.log('│                                        │');
-      console.log(`│    SECURE CHAT OTP FOR ${email.toUpperCase().padEnd(16)}│`);
+      console.log(`│    LYNQ OTP FOR ${email.toUpperCase().padEnd(23)}│`);
       console.log('│                                        │');
       console.log(`│    OTP CODE: \x1b[32m\x1b[1m${otp}\x1b[0m                       │`);
       console.log('│    EXPIRES IN: 5 MINUTES               │');

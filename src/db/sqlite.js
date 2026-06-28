@@ -205,7 +205,42 @@ async function initializeSchema(db) {
     );
   `);
 
-  // Seed Super Admin user if not already present
+  // 9. Blocked Users Table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS blocked_users (
+      userId TEXT NOT NULL,
+      blockedId TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (userId, blockedId),
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (blockedId) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
+  // 10. Pinned Chats Table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS pinned_chats (
+      userId TEXT NOT NULL,
+      chatId TEXT NOT NULL,
+      friendId TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (userId, friendId),
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (friendId) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
+  // 11. Hidden Chats Table (for "remove chat" without removing friendship)
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS hidden_chats (
+      userId TEXT NOT NULL,
+      friendId TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (userId, friendId),
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (friendId) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
   const superAdminEmail = 'admin@securechat.com';
   const existingAdmin = await db.get('SELECT * FROM users WHERE email = ?', [superAdminEmail]);
   if (!existingAdmin) {

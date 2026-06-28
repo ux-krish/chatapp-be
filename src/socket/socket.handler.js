@@ -139,6 +139,20 @@ export function setupSocketHandler(io) {
         // Determine initial status based on recipient online status
         let isDelivered = false;
         if (receiverId) {
+          // A: Check if either user has blocked the other
+          const blockRecord = await db.get(`
+            SELECT 1 FROM blocked_users 
+            WHERE (userId = ? AND blockedId = ?) OR (userId = ? AND blockedId = ?)
+          `, [userId, receiverId, receiverId, userId]);
+          
+          if (blockRecord) {
+            if (ack) ack({ error: 'You cannot send messages to this user (blocked).' });
+            return;
+          }
+
+          // B: Auto-unhide chat for both users on new message activity
+          await db.run('DELETE FROM hidden_chats WHERE (userId = ? AND friendId = ?) OR (userId = ? AND friendId = ?)', [userId, receiverId, receiverId, userId]);
+
           const recipientSockets = activeConnections.get(receiverId);
           if (recipientSockets && recipientSockets.size > 0) {
             isDelivered = true;

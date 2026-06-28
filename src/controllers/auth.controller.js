@@ -161,7 +161,7 @@ export async function verifyOtp(req, res) {
       const userId = 'usr_' + Date.now() + Math.random().toString(36).substr(2, 9);
       const cleanDisplayName = displayName.trim();
       const avatarUrl = null; // Client will generate styled letter avatar or user can upload
-      const cleanBio = bio ? bio.trim() : 'Hey there! I am using Secure Chat.';
+      const cleanBio = bio ? bio.trim() : 'Hey there! I am using Lynq.';
       const createdAt = Date.now();
 
       // Check if this is the first user in the system to assign admin role
@@ -364,7 +364,7 @@ export async function googleAuth(req, res) {
       const userId = 'usr_' + Date.now() + Math.random().toString(36).substr(2, 9);
       const displayName = name || cleanEmail.split('@')[0];
       const avatarUrl = picture || null;
-      const bio = 'Hey there! I am using Secure Chat.';
+      const bio = 'Hey there! I am using Lynq.';
       const createdAt = Date.now();
 
       // Check if this is the first user in the system to assign admin role
@@ -467,7 +467,7 @@ export async function registerWithPassword(req, res) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const userId = 'usr_' + Date.now() + Math.random().toString(36).substr(2, 9);
     const cleanDisplayName = displayName.trim();
-    const cleanBio = bio ? bio.trim() : 'Hey there! I am using Secure Chat.';
+    const cleanBio = bio ? bio.trim() : 'Hey there! I am using Lynq.';
     const createdAt = Date.now();
 
     // Check if this is the first user in the system to assign admin role

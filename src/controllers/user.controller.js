@@ -222,6 +222,15 @@ export async function getFriends(req, res) {
       ORDER BY f.status ASC, u.displayName ASC
     `, [req.user.id]);
 
+    // Fetch all pinned, blocked, and hidden entries for this user in one go
+    const pinnedRows = await db.all('SELECT friendId FROM pinned_chats WHERE userId = ?', [req.user.id]);
+    const blockedRows = await db.all('SELECT blockedId FROM blocked_users WHERE userId = ?', [req.user.id]);
+    const hiddenRows = await db.all('SELECT friendId FROM hidden_chats WHERE userId = ?', [req.user.id]);
+
+    const pinnedSet = new Set(pinnedRows.map(r => r.friendId));
+    const blockedSet = new Set(blockedRows.map(r => r.blockedId));
+    const hiddenSet = new Set(hiddenRows.map(r => r.friendId));
+
     const result = [];
     for (const friend of friends) {
       const chatId = [req.user.id, friend.id].sort().join('_');
@@ -244,7 +253,10 @@ export async function getFriends(req, res) {
       result.push({
         ...friend,
         lastMessage: lastMessage || null,
-        unreadCount: unreadCountRow ? unreadCountRow.count : 0
+        unreadCount: unreadCountRow ? unreadCountRow.count : 0,
+        isPinned: pinnedSet.has(friend.id),
+        isBlocked: blockedSet.has(friend.id),
+        isHidden: hiddenSet.has(friend.id)
       });
     }
 
@@ -436,5 +448,119 @@ export async function removeFriend(req, res) {
       await db.run('ROLLBACK');
     } catch (rerr) {}
     return res.status(500).json({ error: 'Failed to remove friend.' });
+  }
+}
+
+// Block a user
+export async function blockUser(req, res) {
+  const { blockedId } = req.body;
+  if (!blockedId) return res.status(400).json({ error: 'User ID to block is required.' });
+
+  try {
+    const db = await getDb();
+    await db.run(
+      'INSERT OR IGNORE INTO blocked_users (userId, blockedId, createdAt) VALUES (?, ?, ?)',
+      [req.user.id, blockedId, Date.now()]
+    );
+    return res.status(200).json({ message: 'User blocked successfully.' });
+  } catch (err) {
+    console.error('Error blocking user:', err);
+    return res.status(500).json({ error: 'Failed to block user.' });
+  }
+}
+
+// Unblock a user
+export async function unblockUser(req, res) {
+  const { blockedId } = req.body;
+  if (!blockedId) return res.status(400).json({ error: 'User ID to unblock is required.' });
+
+  try {
+    const db = await getDb();
+    await db.run(
+      'DELETE FROM blocked_users WHERE userId = ? AND blockedId = ?',
+      [req.user.id, blockedId]
+    );
+    return res.status(200).json({ message: 'User unblocked successfully.' });
+  } catch (err) {
+    console.error('Error unblocking user:', err);
+    return res.status(500).json({ error: 'Failed to unblock user.' });
+  }
+}
+
+// Pin a chat
+export async function pinChat(req, res) {
+  const { friendId } = req.body;
+  if (!friendId) return res.status(400).json({ error: 'Friend ID is required.' });
+
+  try {
+    const db = await getDb();
+    const chatId = [req.user.id, friendId].sort().join('_');
+    await db.run(
+      'INSERT OR IGNORE INTO pinned_chats (userId, chatId, friendId, createdAt) VALUES (?, ?, ?, ?)',
+      [req.user.id, chatId, friendId, Date.now()]
+    );
+    return res.status(200).json({ message: 'Chat pinned successfully.' });
+  } catch (err) {
+    console.error('Error pinning chat:', err);
+    return res.status(500).json({ error: 'Failed to pin chat.' });
+  }
+}
+
+// Unpin a chat
+export async function unpinChat(req, res) {
+  const { friendId } = req.body;
+  if (!friendId) return res.status(400).json({ error: 'Friend ID is required.' });
+
+  try {
+    const db = await getDb();
+    await db.run(
+      'DELETE FROM pinned_chats WHERE userId = ? AND friendId = ?',
+      [req.user.id, friendId]
+    );
+    return res.status(200).json({ message: 'Chat unpinned successfully.' });
+  } catch (err) {
+    console.error('Error unpinning chat:', err);
+    return res.status(500).json({ error: 'Failed to unpin chat.' });
+  }
+}
+
+// Hide a chat (remove from sidebar without deleting friendship)
+export async function hideChat(req, res) {
+  const { friendId } = req.body;
+  if (!friendId) return res.status(400).json({ error: 'Friend ID is required.' });
+
+  try {
+    const db = await getDb();
+    await db.run(
+      'INSERT OR IGNORE INTO hidden_chats (userId, friendId, createdAt) VALUES (?, ?, ?)',
+      [req.user.id, friendId, Date.now()]
+    );
+    // Also unpin if pinned
+    await db.run(
+      'DELETE FROM pinned_chats WHERE userId = ? AND friendId = ?',
+      [req.user.id, friendId]
+    );
+    return res.status(200).json({ message: 'Chat hidden successfully.' });
+  } catch (err) {
+    console.error('Error hiding chat:', err);
+    return res.status(500).json({ error: 'Failed to hide chat.' });
+  }
+}
+
+// Unhide a chat (restore to sidebar when user messages again)
+export async function unhideChat(req, res) {
+  const { friendId } = req.body;
+  if (!friendId) return res.status(400).json({ error: 'Friend ID is required.' });
+
+  try {
+    const db = await getDb();
+    await db.run(
+      'DELETE FROM hidden_chats WHERE userId = ? AND friendId = ?',
+      [req.user.id, friendId]
+    );
+    return res.status(200).json({ message: 'Chat restored successfully.' });
+  } catch (err) {
+    console.error('Error unhiding chat:', err);
+    return res.status(500).json({ error: 'Failed to restore chat.' });
   }
 }

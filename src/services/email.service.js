@@ -41,17 +41,17 @@ class EmailService {
     const from = cleanVal(process.env.EMAIL_FROM || process.env.EMAIL_USER);
     
     const mailOptions = {
-      from: `"Secure Chat" <${from}>`,
+      from: `"Lynq" <${from}>`,
       to: toEmail,
       subject: '🔐 Your Verification Code',
       html: `
         <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #e4e4e7; border-radius: 12px; background-color: #fafafa;">
           <div style="text-align: center; margin-bottom: 20px;">
             <span style="font-size: 24px;">💬</span>
-            <h2 style="margin: 10px 0 0 0; color: #09090b; font-size: 20px; font-weight: 700;">Secure Chat Verification</h2>
+            <h2 style="margin: 10px 0 0 0; color: #09090b; font-size: 20px; font-weight: 700;">Lynq Verification</h2>
           </div>
           <p style="color: #3f3f46; font-size: 14px; line-height: 1.5;">Hello,</p>
-          <p style="color: #3f3f46; font-size: 14px; line-height: 1.5;">Your secure chat verification code is:</p>
+          <p style="color: #3f3f46; font-size: 14px; line-height: 1.5;">Your Lynq verification code is:</p>
           <div style="text-align: center; margin: 30px 0; padding: 15px; background-color: #10b981; border-radius: 12px;">
             <span style="font-size: 32px; font-weight: 800; letter-spacing: 0.15em; color: #ffffff;">${otp}</span>
           </div>
