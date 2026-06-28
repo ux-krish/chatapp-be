@@ -397,31 +397,60 @@ export function setupSocketHandler(io) {
     // 6.5 WebRTC Calling Signaling Relays
     socket.on('call_user', ({ userToCall, signalData, from, name, avatarUrl }) => {
       console.log(`📡 Signaling Call: ${from} (${name}) -> ${userToCall}`);
-      io.to(userToCall).emit('incoming_call', {
+      const payload = {
         signal: signalData,
         from,
         name,
         avatarUrl
-      });
+      };
+      // Send via room
+      io.to(userToCall).emit('incoming_call', payload);
+      // Send directly to active sockets (fallback)
+      const recipientSockets = activeConnections.get(userToCall);
+      if (recipientSockets) {
+        recipientSockets.forEach(sid => io.to(sid).emit('incoming_call', payload));
+      }
     });
 
     socket.on('answer_call', ({ to, signal }) => {
       console.log(`📡 Answer Call: ${userId} -> ${to}`);
-      io.to(to).emit('call_accepted', { signal });
+      const payload = { signal };
+      io.to(to).emit('call_accepted', payload);
+      
+      const recipientSockets = activeConnections.get(to);
+      if (recipientSockets) {
+        recipientSockets.forEach(sid => io.to(sid).emit('call_accepted', payload));
+      }
     });
 
     socket.on('ice_candidate', ({ to, candidate }) => {
-      io.to(to).emit('ice_candidate', { candidate });
+      const payload = { candidate };
+      io.to(to).emit('ice_candidate', payload);
+      
+      const recipientSockets = activeConnections.get(to);
+      if (recipientSockets) {
+        recipientSockets.forEach(sid => io.to(sid).emit('ice_candidate', payload));
+      }
     });
 
     socket.on('reject_call', ({ to }) => {
       console.log(`📡 Reject Call: ${userId} -> ${to}`);
       io.to(to).emit('call_rejected');
+      
+      const recipientSockets = activeConnections.get(to);
+      if (recipientSockets) {
+        recipientSockets.forEach(sid => io.to(sid).emit('call_rejected'));
+      }
     });
 
     socket.on('hangup_call', ({ to }) => {
       console.log(`📡 Hangup Call: ${userId} -> ${to}`);
       io.to(to).emit('peer_hungup');
+      
+      const recipientSockets = activeConnections.get(to);
+      if (recipientSockets) {
+        recipientSockets.forEach(sid => io.to(sid).emit('peer_hungup'));
+      }
     });
 
     // 7. Disconnect
