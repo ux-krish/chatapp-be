@@ -263,7 +263,7 @@ async function startServer() {
     console.log('Database connected and schemas synchronized successfully.');
 
     httpServer.listen(PORT, () => {
-      console.log(`\n🚀 LYNQ SERVER RUNNING ON: http://localhost:${PORT}\n`);
+      console.log(`\n🚀 LYNQ SERVER STATUS: ONLINE (LOCAL MODE)\n`);
     });
   } catch (err) {
     console.error('Critical failure: Could not start application server.', err);
