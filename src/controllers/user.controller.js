@@ -5,7 +5,7 @@ import { getDb } from '../db/sqlite.js';
 import { emitToUser } from '../socket/socket.handler.js';
 import { admin as firebaseAdmin, isInitialized as firebaseInitialized } from '../db/firebase.js';
 
-const ONLINE_API_URL = process.env.ONLINE_API_URL || 'https://mychatapp-be-z1nx.onrender.com';
+const ONLINE_API_URL = process.env.ONLINE_API_URL || 'localhost:5001';
 
 // Get current user profile
 export async function getProfile(req, res) {
@@ -81,7 +81,7 @@ export async function updateProfile(req, res) {
               const bucket = adminSdk.storage().bucket();
               const gcsPrefix = `https://storage.googleapis.com/${bucket.name}/`;
               const fbPrefix = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/`;
-              
+
               let firebaseFilePath = null;
               if (user.avatarUrl.startsWith(gcsPrefix)) {
                 firebaseFilePath = user.avatarUrl.replace(gcsPrefix, '');
@@ -103,7 +103,7 @@ export async function updateProfile(req, res) {
           console.error('Failed to clean up old avatar file:', unlinkErr);
         }
       }
-      
+
       avatarUrl = newAvatarUrl;
     }
 
@@ -141,7 +141,7 @@ export async function updateProfile(req, res) {
 export async function deleteSelf(req, res) {
   try {
     const db = await getDb();
-    
+
     const user = await db.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
@@ -436,7 +436,7 @@ export async function syncFirebaseUsers(req, res) {
 export async function getFriends(req, res) {
   try {
     const db = await getDb();
-    
+
     // Get all friendships for this user, joining user details of the friend
     const friends = await db.all(`
       SELECT u.id, u.email, u.displayName, u.avatarUrl, u.bio, u.status, u.lastSeen, f.status AS friendshipStatus, f.createdAt
@@ -458,7 +458,7 @@ export async function getFriends(req, res) {
     const result = [];
     for (const friend of friends) {
       const chatId = [req.user.id, friend.id].sort().join('_');
-      
+
       const lastMessage = await db.get(`
         SELECT m.*, u.displayName AS senderName
         FROM messages m
@@ -503,7 +503,7 @@ export async function sendFriendRequest(req, res) {
 
   try {
     const db = await getDb();
-    
+
     // Check if target user exists
     const friendUser = await db.get('SELECT * FROM users WHERE id = ?', [friendId]);
     if (!friendUser) {
@@ -528,10 +528,10 @@ export async function sendFriendRequest(req, res) {
     }
 
     const now = Date.now();
-    
+
     // Create double-linked friendship rows for quick bidirectional querying
     await db.run('BEGIN TRANSACTION');
-    
+
     await db.run(`
       INSERT INTO friends (userId, friendId, status, createdAt)
       VALUES (?, ?, 'pending_sent', ?)
@@ -551,7 +551,7 @@ export async function sendFriendRequest(req, res) {
     `, [req.user.id]);
     emitToUser(friendId, 'friend_request', { sender: currentUser });
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       message: 'Friend request sent successfully.',
       friendshipStatus: 'pending_sent'
     });
@@ -560,7 +560,7 @@ export async function sendFriendRequest(req, res) {
     try {
       const db = await getDb();
       await db.run('ROLLBACK');
-    } catch (rerr) {}
+    } catch (rerr) { }
     return res.status(500).json({ error: 'Failed to send friend request.' });
   }
 }
@@ -574,7 +574,7 @@ export async function respondFriendRequest(req, res) {
 
   try {
     const db = await getDb();
-    
+
     // Check if request exists
     const request = await db.get(`
       SELECT * FROM friends 
@@ -593,7 +593,7 @@ export async function respondFriendRequest(req, res) {
         UPDATE friends SET status = 'accepted' 
         WHERE (userId = ? AND friendId = ?) OR (userId = ? AND friendId = ?)
       `, [req.user.id, friendId, friendId, req.user.id]);
-      
+
       await db.run('COMMIT');
 
       // Emit real-time socket notification to the sender
@@ -603,7 +603,7 @@ export async function respondFriendRequest(req, res) {
       `, [req.user.id]);
       emitToUser(friendId, 'friend_accept', { friend: currentUser });
 
-      return res.status(200).json({ 
+      return res.status(200).json({
         message: 'Friend request accepted.',
         friendshipStatus: 'accepted'
       });
@@ -619,7 +619,7 @@ export async function respondFriendRequest(req, res) {
       // Emit real-time socket notification to the sender
       emitToUser(friendId, 'friend_decline', { friendId: req.user.id });
 
-      return res.status(200).json({ 
+      return res.status(200).json({
         message: 'Friend request declined.',
         friendshipStatus: 'none'
       });
@@ -629,7 +629,7 @@ export async function respondFriendRequest(req, res) {
     try {
       const db = await getDb();
       await db.run('ROLLBACK');
-    } catch (rerr) {}
+    } catch (rerr) { }
     return res.status(500).json({ error: 'Failed to process friend request response.' });
   }
 }
@@ -643,7 +643,7 @@ export async function removeFriend(req, res) {
 
   try {
     const db = await getDb();
-    
+
     const friendship = await db.get(`
       SELECT * FROM friends 
       WHERE userId = ? AND friendId = ? AND status = 'accepted'
@@ -654,7 +654,7 @@ export async function removeFriend(req, res) {
     }
 
     await db.run('BEGIN TRANSACTION');
-    
+
     // Delete both friendship rows
     await db.run(`
       DELETE FROM friends 
@@ -662,7 +662,7 @@ export async function removeFriend(req, res) {
     `, [req.user.id, friendId, friendId, req.user.id]);
 
     // Delete messages between the two users (optional, but keeps DB clean. Let's keep messages for history or delete? The WhatsApp standard keeps them, but let's keep them and just delete friendship).
-    
+
     await db.run('COMMIT');
     return res.status(200).json({ message: 'Friend removed successfully.' });
   } catch (err) {
@@ -670,7 +670,7 @@ export async function removeFriend(req, res) {
     try {
       const db = await getDb();
       await db.run('ROLLBACK');
-    } catch (rerr) {}
+    } catch (rerr) { }
     return res.status(500).json({ error: 'Failed to remove friend.' });
   }
 }
