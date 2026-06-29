@@ -3,7 +3,7 @@ import { getDb } from '../db/sqlite.js';
 export async function logCall(req, res) {
   try {
     const db = await getDb();
-    const { callerId, receiverId, status, duration } = req.body;
+    const { callerId, receiverId, status, duration, callType } = req.body;
     const currentUserId = req.user.id;
 
     if (!callerId || !receiverId || !status) {
@@ -18,11 +18,12 @@ export async function logCall(req, res) {
     const callId = 'call_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
     const createdAt = Date.now();
     const callDuration = duration || 0;
+    const resolvedCallType = callType === 'video' ? 'video' : 'audio';
 
     await db.run(`
-      INSERT INTO calls (id, callerId, receiverId, status, duration, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [callId, callerId, receiverId, status, callDuration, createdAt]);
+      INSERT INTO calls (id, callerId, receiverId, status, callType, duration, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [callId, callerId, receiverId, status, resolvedCallType, callDuration, createdAt]);
 
     const savedCall = await db.get(`
       SELECT c.*, 

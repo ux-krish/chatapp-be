@@ -395,13 +395,14 @@ export function setupSocketHandler(io) {
     });
 
     // 6.5 WebRTC Calling Signaling Relays
-    socket.on('call_user', ({ userToCall, signalData, from, name, avatarUrl }) => {
-      console.log(`📡 Signaling Call: ${from} (${name}) -> ${userToCall}`);
+    socket.on('call_user', ({ userToCall, signalData, from, name, avatarUrl, callType }) => {
+      console.log(`📡 Signaling ${callType || 'audio'} Call: ${from} (${name}) -> ${userToCall}`);
       const payload = {
         signal: signalData,
         from,
         name,
-        avatarUrl
+        avatarUrl,
+        callType: callType || 'audio'
       };
       // Send via room
       io.to(userToCall).emit('incoming_call', payload);

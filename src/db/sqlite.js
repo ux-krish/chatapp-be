@@ -253,12 +253,22 @@ async function initializeSchema(db) {
       callerId TEXT NOT NULL,
       receiverId TEXT NOT NULL,
       status TEXT NOT NULL, -- 'missed', 'incoming', 'outgoing'
+      callType TEXT DEFAULT 'audio', -- 'audio' or 'video'
       duration INTEGER DEFAULT 0, -- in seconds
       createdAt INTEGER NOT NULL,
       FOREIGN KEY (callerId) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (receiverId) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+
+  // Migration: add callType column to existing calls table if missing
+  try {
+    const callsCols = await db.all("PRAGMA table_info(calls)");
+    if (!callsCols.find(c => c.name === 'callType')) {
+      await db.run("ALTER TABLE calls ADD COLUMN callType TEXT DEFAULT 'audio'");
+      console.log('🔄 Migration: Added callType column to calls table.');
+    }
+  } catch (_) { /* column already exists */ }
 
   const superAdminEmail = 'admin@securechat.com';
   const existingAdmin = await db.get('SELECT * FROM users WHERE email = ?', [superAdminEmail]);
