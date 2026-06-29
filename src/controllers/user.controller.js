@@ -3,6 +3,9 @@ import path from 'path';
 import { UPLOADS_DIR } from '../config/config.js';
 import { getDb } from '../db/sqlite.js';
 import { emitToUser } from '../socket/socket.handler.js';
+import { admin as firebaseAdmin, isInitialized as firebaseInitialized } from '../db/firebase.js';
+
+const ONLINE_API_URL = process.env.ONLINE_API_URL || 'https://mychatapp-be-z1nx.onrender.com';
 
 // Get current user profile
 export async function getProfile(req, res) {
@@ -171,8 +174,9 @@ export async function searchUsers(req, res) {
   try {
     const db = await getDb();
     const cleanQuery = `%${query.trim().toLowerCase()}%`;
+    const lowered = query.trim().toLowerCase();
 
-    // Search users by email or display name, excluding the current user
+    // 1. Primary source — local SQLite `users` table
     const users = await db.all(`
       SELECT id, email, displayName, avatarUrl, bio, status, lastSeen
       FROM users
@@ -181,6 +185,84 @@ export async function searchUsers(req, res) {
       LIMIT 15
     `, [cleanQuery, cleanQuery, req.user.id]);
 
+    // 2. Secondary source — Firebase Authentication user list.
+    //    Users registered via Google on another deployment (live backend, another
+    //    machine, etc.) only exist in Firebase Auth, not in this SQLite file.
+    //    When Firebase Admin is configured we look them up by email/name and
+    //    auto-provision them into the local `users` table so they become
+    //    permanently searchable from this backend going forward.
+    if (firebaseInitialized && users.length < 10) {
+      try {
+        const fbUsers = await fetchFirebaseAuthUsers(lowered);
+        if (fbUsers.length > 0) {
+          const now = Date.now();
+          for (const fbUser of fbUsers) {
+            // Skip self
+            if (fbUser.email && fbUser.email.toLowerCase() === req.user.email?.toLowerCase()) continue;
+            // Skip if we already have a row with this email
+            const existing = await db.get('SELECT id FROM users WHERE email = ?', [fbUser.email]);
+            if (existing) continue;
+
+            const userId = 'usr_fb_' + (fbUser.uid || Date.now().toString(36)) + '_' + Math.random().toString(36).substr(2, 6);
+            await db.run(`
+              INSERT INTO users (id, email, displayName, avatarUrl, bio, status, lastSeen, role, createdAt)
+              VALUES (?, ?, ?, ?, ?, 'offline', ?, 'user', ?)
+            `, [
+              userId,
+              fbUser.email,
+              fbUser.displayName || fbUser.email.split('@')[0],
+              fbUser.avatarUrl || null,
+              'Hey there! I am using Talkzen.',
+              now,
+              now
+            ]);
+          }
+          // Re-run the SQLite search now that Firebase users have been provisioned
+          const refreshed = await db.all(`
+            SELECT id, email, displayName, avatarUrl, bio, status, lastSeen
+            FROM users
+            WHERE (LOWER(email) LIKE ? OR LOWER(displayName) LIKE ?)
+              AND id != ?
+            LIMIT 15
+          `, [cleanQuery, cleanQuery, req.user.id]);
+          users.splice(0, users.length, ...refreshed);
+        }
+      } catch (fbErr) {
+        console.warn('Firebase Auth fallback during search failed (non-fatal):', fbErr.message);
+      }
+    }
+
+    // 3. Server-side fallback: if we still have few results and this is a local
+    //    backend (no Firebase creds), try the online backend as a last resort.
+    //    This helps when users registered on the live deployment but the local
+    //    backend has no Firebase Admin SDK configured.
+    if (users.length < 5 && !firebaseInitialized) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
+        const altRes = await fetch(`${ONLINE_API_URL}/api/users/search?query=${encodeURIComponent(query.trim())}`, {
+          method: 'GET',
+          signal: controller.signal,
+          headers: { 'Authorization': req.headers.authorization || '' },
+        });
+        clearTimeout(timer);
+        if (altRes.ok) {
+          const altData = await altRes.json();
+          if (Array.isArray(altData)) {
+            const seen = new Set(users.map(u => u.id));
+            for (const u of altData) {
+              if (!seen.has(u.id) && u.id !== req.user.id) {
+                users.push(u);
+                seen.add(u.id);
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // Online backend unreachable — ignore
+      }
+    }
+
     // For each user found, check friendship status with current user
     const userIds = users.map(u => u.id);
     if (userIds.length === 0) {
@@ -188,8 +270,8 @@ export async function searchUsers(req, res) {
     }
 
     const friendships = await db.all(`
-      SELECT friendId, status 
-      FROM friends 
+      SELECT friendId, status
+      FROM friends
       WHERE userId = ? AND friendId IN (${userIds.map(() => '?').join(',')})
     `, [req.user.id, ...userIds]);
 
@@ -207,6 +289,146 @@ export async function searchUsers(req, res) {
   } catch (err) {
     console.error('Error searching users:', err);
     return res.status(500).json({ error: 'Failed to search users.' });
+  }
+}
+
+// Lookup users in Firebase Auth by email or display name.
+// Returns a list of normalized user records: { uid, email, displayName, avatarUrl }.
+async function fetchFirebaseAuthUsers(query) {
+  if (!firebaseInitialized || typeof firebaseAdmin.auth !== 'function') return [];
+
+  const results = [];
+  const seen = new Set();
+  const lowerQ = query.toLowerCase();
+
+  try {
+    // 2a. Try exact / prefix email lookup first (most reliable)
+    const candidates = [];
+    if (lowerQ.includes('@')) {
+      candidates.push(query.trim());
+      candidates.push(query.trim().toLowerCase());
+    } else {
+      // Try a few common email patterns from the typed name
+      candidates.push(`${lowerQ}@gmail.com`);
+      candidates.push(`${lowerQ}@yahoo.com`);
+      candidates.push(`${lowerQ}@outlook.com`);
+      candidates.push(`${lowerQ}@hotmail.com`);
+      candidates.push(`${lowerQ}@icloud.com`);
+      candidates.push(`${lowerQ}@protonmail.com`);
+    }
+
+    for (const email of candidates) {
+      try {
+        const fbUser = await firebaseAdmin.auth().getUserByEmail(email);
+        if (fbUser && fbUser.email && !seen.has(fbUser.email.toLowerCase())) {
+          seen.add(fbUser.email.toLowerCase());
+          results.push({
+            uid: fbUser.uid,
+            email: fbUser.email,
+            displayName: fbUser.displayName || (fbUser.email ? fbUser.email.split('@')[0] : 'User'),
+            avatarUrl: fbUser.photoURL || null
+          });
+        }
+      } catch (_) {
+        // Email not found in Firebase — try the next candidate
+      }
+    }
+
+    // 2b. Scan a page of Firebase Auth users and filter by name/email match.
+    //     This catches users that exist in Firebase Auth but signed up on a
+    //     different deployment with an unusual email pattern.
+    if (results.length === 0 || query.length >= 3) {
+      let nextPageToken = undefined;
+      let pagesScanned = 0;
+      while (pagesScanned < 5 && results.length < 15) {
+        const listResult = await firebaseAdmin.auth().listUsers(100, nextPageToken);
+        for (const fbUser of listResult.users) {
+          const emailLower = (fbUser.email || '').toLowerCase();
+          const nameLower = (fbUser.displayName || '').toLowerCase();
+          if (!emailLower && !nameLower) continue;
+          const match =
+            (lowerQ.includes('@') && emailLower.includes(lowerQ)) ||
+            (!lowerQ.includes('@') && (nameLower.includes(lowerQ) || emailLower.split('@')[0].includes(lowerQ)));
+          if (match && !seen.has(emailLower)) {
+            seen.add(emailLower);
+            results.push({
+              uid: fbUser.uid,
+              email: fbUser.email,
+              displayName: fbUser.displayName || (fbUser.email ? fbUser.email.split('@')[0] : 'User'),
+              avatarUrl: fbUser.photoURL || null
+            });
+            if (results.length >= 15) break;
+          }
+        }
+        nextPageToken = listResult.pageToken;
+        pagesScanned += 1;
+        if (!nextPageToken) break;
+      }
+    }
+  } catch (err) {
+    console.warn('fetchFirebaseAuthUsers encountered an error:', err.message);
+  }
+
+  return results;
+}
+
+// Admin-only utility: synchronise ALL Firebase Auth users into the local SQLite
+// `users` table. Useful when first bringing up a fresh local backend that
+// needs to be aware of users who originally registered via the live backend.
+export async function syncFirebaseUsers(req, res) {
+  try {
+    const db = await getDb();
+    if (!firebaseInitialized || typeof firebaseAdmin.auth !== 'function') {
+      return res.status(503).json({ error: 'Firebase Admin SDK is not initialized on this backend.' });
+    }
+
+    let nextPageToken = undefined;
+    let totalScanned = 0;
+    let totalInserted = 0;
+    let totalUpdated = 0;
+    const now = Date.now();
+
+    do {
+      const listResult = await firebaseAdmin.auth().listUsers(200, nextPageToken);
+      for (const fbUser of listResult.users) {
+        totalScanned += 1;
+        if (!fbUser.email) continue;
+
+        const cleanEmail = fbUser.email.toLowerCase().trim();
+        const existing = await db.get('SELECT id FROM users WHERE email = ?', [cleanEmail]);
+        if (existing) {
+          // Refresh avatar / displayName from Firebase if our local row is missing them
+          await db.run(`
+            UPDATE users SET displayName = COALESCE(NULLIF(?, ''), displayName),
+                             avatarUrl = COALESCE(NULLIF(?, ''), avatarUrl)
+            WHERE email = ?
+          `, [fbUser.displayName || '', fbUser.photoURL || '', cleanEmail]);
+          totalUpdated += 1;
+          continue;
+        }
+
+        const userId = 'usr_fb_' + fbUser.uid + '_' + Math.random().toString(36).substr(2, 6);
+        const displayName = fbUser.displayName || cleanEmail.split('@')[0];
+        const avatarUrl = fbUser.photoURL || null;
+
+        await db.run(`
+          INSERT INTO users (id, email, displayName, avatarUrl, bio, status, lastSeen, role, createdAt)
+          VALUES (?, ?, ?, ?, ?, 'offline', ?, 'user', ?)
+        `, [userId, cleanEmail, displayName, avatarUrl, 'Hey there! I am using Talkzen.', now, now]);
+        totalInserted += 1;
+      }
+      nextPageToken = listResult.pageToken;
+    } while (nextPageToken);
+
+    return res.status(200).json({
+      message: 'Firebase Auth users synchronised into local database.',
+      scanned: totalScanned,
+      inserted: totalInserted,
+      updated: totalUpdated
+    });
+  } catch (err) {
+    console.error('Error syncing Firebase Auth users:', err);
+    return res.status(500).json({ error: 'Failed to synchronise Firebase Auth users.' });
   }
 }
 

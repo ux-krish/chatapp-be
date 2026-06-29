@@ -30,7 +30,7 @@ const serializeUser = (user) => {
 };
 
 // Convert helper like '7d' to milliseconds
-const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; 
+const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
 // Validate if email domain has MX or A records (exists and can receive mail)
 function checkDomainDns(domain) {
@@ -118,13 +118,13 @@ export async function requestOtp(req, res) {
     }
 
     const otp = await otpService.generateOtp(cleanEmail);
-    
+
     // In development mode, return the OTP in the response for ease of testing
     const responseData = { message: 'OTP sent successfully.' };
     if (NODE_ENV === 'development') {
       responseData.otp = otp; // Frontend can auto-fill or print in console
     }
-    
+
     return res.status(200).json(responseData);
   } catch (err) {
     console.error('Error requesting OTP:', err);
@@ -141,7 +141,7 @@ export async function verifyOtp(req, res) {
   try {
     const cleanEmail = email.toLowerCase().trim();
     const verification = await otpService.verifyOtp(cleanEmail, otp);
-    
+
     if (!verification.valid) {
       return res.status(400).json({ error: verification.message });
     }
@@ -161,7 +161,7 @@ export async function verifyOtp(req, res) {
       const userId = 'usr_' + Date.now() + Math.random().toString(36).substr(2, 9);
       const cleanDisplayName = displayName.trim();
       const avatarUrl = null; // Client will generate styled letter avatar or user can upload
-      const cleanBio = bio ? bio.trim() : 'Hey there! I am using Lynq.';
+      const cleanBio = bio ? bio.trim() : 'Hey there! I am using Talkzen.';
       const createdAt = Date.now();
 
       // Check if this is the first user in the system to assign admin role
@@ -214,13 +214,13 @@ export async function verifyOtp(req, res) {
 
 export async function refreshToken(req, res) {
   let token = null;
-  
+
   // Try reading from Authorization header
   const authHeader = req.headers['authorization'];
   if (authHeader && authHeader.startsWith('Bearer ')) {
     token = authHeader.split(' ')[1];
   }
-  
+
   // Try reading from cookies
   if (!token && req.cookies) {
     token = req.cookies.refreshToken;
@@ -282,11 +282,11 @@ export async function logout(req, res) {
         await db.run("UPDATE users SET status = 'offline', lastSeen = ? WHERE id = ?", [Date.now(), decoded.id]);
       }
     }
-    
+
     // Clear cookies
     res.clearCookie('accessToken');
     res.clearCookie('refreshToken');
-    
+
     return res.status(200).json({ message: 'Logged out successfully.' });
   } catch (err) {
     console.error('Error logging out:', err);
@@ -364,7 +364,7 @@ export async function googleAuth(req, res) {
       const userId = 'usr_' + Date.now() + Math.random().toString(36).substr(2, 9);
       const displayName = name || cleanEmail.split('@')[0];
       const avatarUrl = picture || null;
-      const bio = 'Hey there! I am using Lynq.';
+      const bio = 'Hey there! I am using Talkzen.';
       const createdAt = Date.now();
 
       // Check if this is the first user in the system to assign admin role
@@ -429,16 +429,28 @@ export async function googleAuth(req, res) {
       refreshToken
     });
   } catch (err) {
-    console.error('Error in Google auth:', err);
-    return res.status(401).json({ error: 'Invalid Google credentials or token verification failed.' });
+    console.error('Error in Google auth:', err.message || err);
+
+    // Provide specific error messages based on failure reason
+    if (err.code === 'auth/id-token-expired') {
+      return res.status(401).json({ error: 'Google sign-in session expired. Please try signing in again.' });
+    }
+    if (err.code === 'auth/argument-error' || err.code === 'auth/invalid-credential') {
+      return res.status(500).json({ error: 'Firebase Admin SDK credentials are misconfigured on the server. Please contact the administrator.' });
+    }
+    if (err.message && err.message.includes('Firebase Admin SDK is not initialized')) {
+      return res.status(500).json({ error: 'Google Sign-In is not available. Firebase is not configured on this server.' });
+    }
+
+    return res.status(401).json({ error: 'Google sign-in failed. Please try again or use another sign-in method.' });
   }
 }
 
 // 1. Register with password
 export async function registerWithPassword(req, res) {
-  const { email, password, displayName, bio } = req.body;
-  if (!email || !password || !displayName || password.trim().length === 0 || displayName.trim().length === 0) {
-    return res.status(400).json({ error: 'Email, password, and display name are required.' });
+  const { email, password, displayName, bio, otp } = req.body;
+  if (!email || !password || !displayName || !otp || password.trim().length === 0 || displayName.trim().length === 0) {
+    return res.status(400).json({ error: 'Email, password, display name, and verification code are required.' });
   }
 
   const cleanEmail = email.toLowerCase().trim();
@@ -449,6 +461,12 @@ export async function registerWithPassword(req, res) {
   }
 
   try {
+    // Verify OTP first
+    const verification = await otpService.verifyOtp(cleanEmail, otp);
+    if (!verification.valid) {
+      return res.status(400).json({ error: verification.message });
+    }
+
     // Verify domain DNS records (real domain check)
     const isRealDomain = await checkDomainDns(domain);
     if (!isRealDomain) {
@@ -456,7 +474,7 @@ export async function registerWithPassword(req, res) {
     }
 
     const db = await getDb();
-    
+
     // Check if user already exists
     const existingUser = await db.get('SELECT * FROM users WHERE email = ?', [cleanEmail]);
     if (existingUser) {
@@ -467,7 +485,7 @@ export async function registerWithPassword(req, res) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const userId = 'usr_' + Date.now() + Math.random().toString(36).substr(2, 9);
     const cleanDisplayName = displayName.trim();
-    const cleanBio = bio ? bio.trim() : 'Hey there! I am using Lynq.';
+    const cleanBio = bio ? bio.trim() : 'Hey there! I am using Talkzen.';
     const createdAt = Date.now();
 
     // Check if this is the first user in the system to assign admin role
@@ -550,17 +568,17 @@ export async function loginWithPassword(req, res) {
     if (user.twoFactorEnabled === 1) {
       // Generate OTP and send to email
       const otp = await otpService.generateOtp(cleanEmail);
-      
-      const responseData = { 
+
+      const responseData = {
         status: '2fa_required',
         email: cleanEmail,
         message: 'Two-factor authentication code sent to email.'
       };
-      
+
       if (NODE_ENV === 'development') {
         responseData.otp = otp;
       }
-      
+
       return res.status(200).json(responseData);
     }
 
@@ -607,7 +625,7 @@ export async function verify2fa(req, res) {
   try {
     const cleanEmail = email.toLowerCase().trim();
     const verification = await otpService.verifyOtp(cleanEmail, otp);
-    
+
     if (!verification.valid) {
       return res.status(400).json({ error: verification.message });
     }

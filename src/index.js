@@ -14,6 +14,7 @@ import { authenticateToken } from './middleware/auth.middleware.js';
 import { requireAdmin } from './middleware/admin.middleware.js';
 import { uploadAvatar, uploadMedia } from './services/storage.service.js';
 import { setupSocketHandler } from './socket/socket.handler.js';
+import { isInitialized } from './db/firebase.js';
 
 // Controller imports
 import {
@@ -42,7 +43,8 @@ import {
   pinChat,
   unpinChat,
   hideChat,
-  unhideChat
+  unhideChat,
+  syncFirebaseUsers
 } from './controllers/user.controller.js';
 
 import {
@@ -101,14 +103,14 @@ const allowedOrigins = [
 
 const corsOrigin = (origin, callback) => {
   if (!origin) return callback(null, true);
-  const isAllowed = allowedOrigins.includes(origin) || 
-                    origin.endsWith('.vercel.app') || 
-                    origin.endsWith('.netlify.app') || 
-                    origin.endsWith('.web.app') || 
-                    origin.endsWith('.github.io') || 
-                    origin.endsWith('.onrender.com') || 
-                    origin.startsWith('http://localhost') || 
-                    origin.startsWith('http://127.0.0.1');
+  const isAllowed = allowedOrigins.includes(origin) ||
+    origin.endsWith('.vercel.app') ||
+    origin.endsWith('.netlify.app') ||
+    origin.endsWith('.web.app') ||
+    origin.endsWith('.github.io') ||
+    origin.endsWith('.onrender.com') ||
+    origin.startsWith('http://localhost') ||
+    origin.startsWith('http://127.0.0.1');
   if (isAllowed) {
     callback(null, true);
   } else {
@@ -167,7 +169,12 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 
 // Health Check — placed BEFORE rate limiters so it is never throttled
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: Date.now() });
+  res.status(200).json({ 
+    status: 'ok', 
+    timestamp: Date.now(),
+    version: '1.0.1',
+    firebaseInitialized: isInitialized
+  });
 });
 
 // Apply rate limiting AFTER health check
@@ -192,6 +199,7 @@ app.put('/api/users/profile', authenticateToken, uploadAvatar, updateProfile);
 app.put('/api/users/profile/security', authenticateToken, updateSecuritySettings);
 app.delete('/api/users/profile', authenticateToken, deleteSelf);
 app.get('/api/users/search', authenticateToken, searchUsers);
+app.post('/api/users/sync-from-firebase', authenticateToken, requireAdmin, syncFirebaseUsers);
 
 // Friend System
 app.get('/api/users/friends', authenticateToken, getFriends);
@@ -251,7 +259,7 @@ app.get('/mobile-login-gateway', (req, res) => {
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Lynq Authentication</title>
+  <title>Talkzen Authentication</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body {
@@ -377,12 +385,12 @@ app.get('/mobile-login-gateway', (req, res) => {
           }
           const data = await response.json();
           statusEl.textContent = "Authenticated!";
-          descEl.textContent = "Redirecting you back to the Lynq app...";
+          descEl.textContent = "Redirecting you back to the Talkzen app...";
           document.getElementById('spinner').style.display = 'none';
 
-          const deepLink = 'lynq://auth-success?accessToken=' + encodeURIComponent(data.accessToken) + '&refreshToken=' + encodeURIComponent(data.refreshToken);
+          const deepLink = 'Talkzen://auth-success?accessToken=' + encodeURIComponent(data.accessToken) + '&refreshToken=' + encodeURIComponent(data.refreshToken);
           window.location.href = deepLink;
-          actionEl.innerHTML = '<a href="' + deepLink + '" class="btn">Return to Lynq App</a>';
+          actionEl.innerHTML = '<a href="' + deepLink + '" class="btn">Return to Talkzen App</a>';
         } catch (err) {
           showError(err.message);
         }
@@ -399,11 +407,11 @@ app.get('/mobile-login-gateway', (req, res) => {
           provider.addScope('profile');
 
           statusEl.textContent = "Google Sign-In Active";
-          descEl.textContent = "Please complete the authentication popup to log into Lynq.";
+          descEl.textContent = "Please complete the authentication popup to log into Talkzen.";
 
           signInWithPopup(auth, provider).then(async (result) => {
             statusEl.textContent = "Verifying Sign-In...";
-            descEl.textContent = "Exchanging credentials with Lynq Secure Servers...";
+            descEl.textContent = "Exchanging credentials with Talkzen Secure Servers...";
             const idToken = await result.user.getIdToken();
 
             const response = await fetch('/api/auth/google', {
@@ -418,14 +426,14 @@ app.get('/mobile-login-gateway', (req, res) => {
 
             const data = await response.json();
             statusEl.textContent = "Authenticated!";
-            descEl.textContent = "Redirecting you back to the Lynq app...";
+            descEl.textContent = "Redirecting you back to the Talkzen app...";
             document.getElementById('spinner').style.display = 'none';
 
             // Deep link redirect
-            const deepLink = 'lynq://auth-success?accessToken=' + encodeURIComponent(data.accessToken) + '&refreshToken=' + encodeURIComponent(data.refreshToken);
+            const deepLink = 'Talkzen://auth-success?accessToken=' + encodeURIComponent(data.accessToken) + '&refreshToken=' + encodeURIComponent(data.refreshToken);
             window.location.href = deepLink;
 
-            actionEl.innerHTML = '<a href="' + deepLink + '" class="btn">Return to Lynq App</a>' +
+            actionEl.innerHTML = '<a href="' + deepLink + '" class="btn">Return to Talkzen App</a>' +
               '<p style="margin-top: 16px; font-size: 12px; color: #71717a;">If you are not redirected automatically, click the button above.</p>';
           }).catch((err) => {
             console.error(err);
@@ -459,7 +467,7 @@ async function startServer() {
     console.log('Database connected and schemas synchronized successfully.');
 
     httpServer.listen(PORT, () => {
-      console.log(`\n🚀 LYNQ SERVER STATUS: ONLINE (LOCAL MODE)\n`);
+      console.log(`\n🚀 Talkzen SERVER STATUS: ONLINE (LOCAL MODE)\n`);
     });
   } catch (err) {
     console.error('Critical failure: Could not start application server.', err);
