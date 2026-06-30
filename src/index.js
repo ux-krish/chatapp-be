@@ -49,6 +49,7 @@ import {
 
 import {
   getChatHistory,
+  deleteChatHistory,
   uploadMediaAttachment,
   createGroup,
   getGroups,
@@ -221,6 +222,7 @@ app.post('/api/users/chat/unhide', authenticateToken, unhideChat);
 
 // Chat & History
 app.get('/api/chat/history/:chatId', authenticateToken, getChatHistory);
+app.delete('/api/chat/history/:chatId', authenticateToken, deleteChatHistory);
 app.post('/api/chat/media/upload', authenticateToken, uploadMedia, uploadMediaAttachment);
 app.get('/api/chat/download', authenticateToken, downloadFileProxy);
 

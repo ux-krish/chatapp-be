@@ -454,6 +454,16 @@ export function setupSocketHandler(io) {
       }
     });
 
+    socket.on('toggle_camera', ({ to, isCameraOff }) => {
+      console.log(`📡 Toggle Camera: ${userId} -> ${to} (isCameraOff: ${isCameraOff})`);
+      io.to(to).emit('peer_camera_toggled', { isCameraOff });
+      
+      const recipientSockets = activeConnections.get(to);
+      if (recipientSockets) {
+        recipientSockets.forEach(sid => io.to(sid).emit('peer_camera_toggled', { isCameraOff }));
+      }
+    });
+
     // 7. Disconnect
     socket.on('disconnect', async () => {
       console.log(`User disconnected: ${socket.user.email} (Socket: ${socket.id})`);

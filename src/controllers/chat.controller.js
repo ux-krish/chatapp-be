@@ -53,9 +53,9 @@ export async function getChatHistory(req, res) {
       JOIN users u ON m.senderId = u.id
       LEFT JOIN messages pm ON m.parentMessageId = pm.id
       LEFT JOIN users pmu ON pm.senderId = pmu.id
-      WHERE m.chatId = ?
+      WHERE m.chatId = ? AND (m.clearedForUsers IS NULL OR m.clearedForUsers NOT LIKE ?)
     `;
-    const params = [chatId];
+    const params = [chatId, '%,' + req.user.id + ',%'];
 
     if (before) {
       query += ` AND m.createdAt < ?`;
@@ -297,10 +297,10 @@ export async function getGroups(req, res) {
         SELECT m.*, u.displayName AS senderName
         FROM messages m
         JOIN users u ON m.senderId = u.id
-        WHERE m.groupId = ?
+        WHERE m.groupId = ? AND (m.clearedForUsers IS NULL OR m.clearedForUsers NOT LIKE ?)
         ORDER BY m.createdAt DESC
         LIMIT 1
-      `, [group.id]);
+      `, [group.id, '%,' + req.user.id + ',%']);
 
       result.push({
         ...group,
@@ -535,3 +535,56 @@ export async function leaveGroup(req, res) {
     return res.status(500).json({ error: 'Failed to leave group.' });
   }
 }
+
+// Delete chat history (clear all messages in a direct message or group chat)
+export async function deleteChatHistory(req, res) {
+  const { chatId } = req.params;
+
+  if (!chatId) {
+    return res.status(400).json({ error: 'Chat ID is required.' });
+  }
+
+  try {
+    const db = await getDb();
+
+    // Check if user is authorized to clear this chat
+    const isOneToOne = chatId.startsWith('usr_');
+    if (isOneToOne) {
+      if (!chatId.includes(req.user.id)) {
+        return res.status(403).json({ error: 'Access denied. You are not a participant in this chat.' });
+      }
+    } else {
+      // It's a group chat. Verify user is a member of the group
+      const membership = await db.get(`
+        SELECT * FROM group_members 
+        WHERE groupId = ? AND userId = ?
+      `, [chatId, req.user.id]);
+
+      if (!membership) {
+        return res.status(403).json({ error: 'Access denied. You are not a member of this group.' });
+      }
+    }
+
+    // Mark messages as cleared for this requesting user only
+    const userTag = ',' + req.user.id + ',';
+    const userAppend = req.user.id + ',';
+    const userSearch = '%,' + req.user.id + ',%';
+    await db.run(`
+      UPDATE messages 
+      SET clearedForUsers = CASE 
+        WHEN clearedForUsers IS NULL OR clearedForUsers = '' THEN ? 
+        ELSE clearedForUsers || ? 
+      END 
+      WHERE chatId = ? AND (clearedForUsers IS NULL OR clearedForUsers NOT LIKE ?)
+    `, [userTag, userAppend, chatId, userSearch]);
+
+    // Broadcast via socket to the sender user only (so their client app clears local state)
+    emitToUser(req.user.id, 'chat_history_cleared', { chatId, clearedBy: req.user.id });
+
+    return res.status(200).json({ message: 'Chat history cleared successfully.' });
+  } catch (err) {
+    console.error('Error clearing chat history:', err);
+    return res.status(500).json({ error: 'Failed to clear chat history.' });
+  }
+}
+

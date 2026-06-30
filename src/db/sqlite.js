@@ -182,6 +182,9 @@ async function initializeSchema(db) {
   try {
     await db.exec("ALTER TABLE messages ADD COLUMN reaction TEXT;");
   } catch (e) {}
+  try {
+    await db.exec("ALTER TABLE messages ADD COLUMN clearedForUsers TEXT;");
+  } catch (e) {}
 
   // 7. Stories Table
   await db.exec(`

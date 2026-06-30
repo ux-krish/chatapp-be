@@ -463,16 +463,16 @@ export async function getFriends(req, res) {
         SELECT m.*, u.displayName AS senderName
         FROM messages m
         JOIN users u ON m.senderId = u.id
-        WHERE m.chatId = ?
+        WHERE m.chatId = ? AND (m.clearedForUsers IS NULL OR m.clearedForUsers NOT LIKE ?)
         ORDER BY m.createdAt DESC
         LIMIT 1
-      `, [chatId]);
+      `, [chatId, '%,' + req.user.id + ',%']);
 
       const unreadCountRow = await db.get(`
         SELECT COUNT(*) AS count 
         FROM messages 
-        WHERE chatId = ? AND senderId = ? AND status != 'read'
-      `, [chatId, friend.id]);
+        WHERE chatId = ? AND senderId = ? AND status != 'read' AND (clearedForUsers IS NULL OR clearedForUsers NOT LIKE ?)
+      `, [chatId, friend.id, '%,' + req.user.id + ',%']);
 
       result.push({
         ...friend,
